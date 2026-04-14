@@ -3,8 +3,12 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { DatabaseModule } from './database/database.module';
 import { StocksModule } from './stocks/stocks.module';
 import { ScraperModule } from './scraper/scraper.module';
+import { IntelligenceModule } from './intelligence/intelligence.module';
+import { AlertsModule } from './alerts/alerts.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { StocksService } from './stocks/stocks.service';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
 
 @Module({
   imports: [
@@ -12,8 +16,12 @@ import { StocksService } from './stocks/stocks.service';
     DatabaseModule,
     ScraperModule,
     StocksModule,
+    IntelligenceModule,
+    AlertsModule,
     SchedulerModule,
   ],
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule implements OnApplicationBootstrap {
   constructor(private readonly stocksService: StocksService) {}

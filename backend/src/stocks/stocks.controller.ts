@@ -9,6 +9,7 @@ import {
 import { StocksService } from './stocks.service';
 import { YahooService } from '../scraper/yahoo.service';
 import { StockDto, PriceSnapshotDto, FetchNowResponseDto } from './dto/stock.dto';
+import { NewsItemWithSentimentDto } from '../alerts/dto/alert.dto';
 
 @ApiTags('Stocks')
 @Controller('stocks')
@@ -45,11 +46,7 @@ export class StocksController {
     summary: 'Get price & volume history for a stock',
     description: 'Returns the last 30 price snapshots for the given ticker, ordered newest first.',
   })
-  @ApiParam({
-    name: 'ticker',
-    example: 'DANGCEM.LG',
-    description: 'Yahoo Finance ticker symbol (e.g. DANGCEM.LG)',
-  })
+  @ApiParam({ name: 'ticker', example: 'DANGCEM.LG', description: 'Yahoo Finance ticker symbol' })
   @ApiOkResponse({ type: [PriceSnapshotDto] })
   @ApiNotFoundResponse({ description: 'No price data found for the given ticker' })
   async getPrices(@Param('ticker') ticker: string) {
@@ -60,16 +57,25 @@ export class StocksController {
     return snapshots;
   }
 
+  @Get(':ticker/news')
+  @ApiOperation({
+    summary: 'Get recent news + sentiment for a stock',
+    description: 'Returns the most recent news headlines for a given ticker with their Groq AI sentiment scores.',
+  })
+  @ApiParam({ name: 'ticker', example: 'MTNN.LG', description: 'Yahoo Finance ticker symbol' })
+  @ApiOkResponse({ type: [NewsItemWithSentimentDto] })
+  @ApiNotFoundResponse({ description: 'Stock not found' })
+  async getNews(@Param('ticker') ticker: string) {
+    const news = await this.stocksService.getNewsWithSentiment(ticker);
+    return news;
+  }
+
   @Get(':ticker')
   @ApiOperation({
     summary: 'Get a single stock by ticker',
     description: 'Returns full detail for a single stock including sector, Graham score, and fundamental ratios.',
   })
-  @ApiParam({
-    name: 'ticker',
-    example: 'GTCO.LG',
-    description: 'Yahoo Finance ticker symbol (e.g. GTCO.LG)',
-  })
+  @ApiParam({ name: 'ticker', example: 'GTCO.LG', description: 'Yahoo Finance ticker symbol' })
   @ApiOkResponse({ type: StockDto })
   @ApiNotFoundResponse({ description: 'Stock not found' })
   async findOne(@Param('ticker') ticker: string) {
