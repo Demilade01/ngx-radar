@@ -1,6 +1,8 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiOkResponse, ApiProperty } from '@nestjs/swagger';
 import { AppService } from './app.service';
+import { AnomalyService } from './intelligence/anomaly.service';
+import { TelegramService } from './alerts/telegram.service';
 
 export class StatusResponseDto {
   @ApiProperty({ example: 'ok' })
@@ -34,7 +36,11 @@ export class StatusResponseDto {
 @ApiTags('Health')
 @Controller()
 export class AppController {
-  constructor(private readonly appService: AppService) {}
+  constructor(
+    private readonly appService: AppService,
+    private readonly anomalyService: AnomalyService,
+    private readonly telegramService: TelegramService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -45,5 +51,41 @@ export class AppController {
   @ApiOkResponse({ type: StatusResponseDto })
   getStatus() {
     return this.appService.getStatus();
+  }
+
+  @Get('admin/detect-now')
+  @ApiOperation({
+    summary: '[Admin] Manually trigger anomaly detection',
+    description:
+      'Runs the full intelligence pipeline immediately: scores unscored news, detects volume anomalies, assigns conviction tiers, saves alerts, and sends Telegram notifications for HIGH/MEDIUM events. Useful for testing without waiting for the hourly cron.',
+  })
+  @ApiOkResponse({
+    schema: {
+      example: { triggered: true, eventsDetected: 3, timestamp: '2026-04-14T10:00:00.000Z' },
+    },
+  })
+  async detectNow() {
+    const results = await this.anomalyService.detectAll();
+    return {
+      triggered: true,
+      eventsDetected: results.length,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  @Get('admin/telegram-test')
+  @ApiOperation({
+    summary: '[Admin] Send a test Telegram message',
+    description:
+      'Sends a test ping to your configured TELEGRAM_CHAT_ID to verify the bot token and chat ID are correctly set up.',
+  })
+  @ApiOkResponse({
+    schema: { example: { sent: true } },
+  })
+  async telegramTest() {
+    await this.telegramService['sendMessage'](
+      `🔔 <b>Ngix — Connection Test</b>\n\nTelegram alerts are working correctly.\n<i>${new Date().toLocaleString('en-NG', { timeZone: 'Africa/Lagos' })} WAT</i>`,
+    );
+    return { sent: true };
   }
 }
