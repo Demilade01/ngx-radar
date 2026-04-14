@@ -8,6 +8,10 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 export const metadata: Metadata = {
   title: "Ngix — Nigerian Stock Intelligence",
   description: "Private financial intelligence platform for the NGX. Detect smart money flows before the market reacts.",
+  icons: {
+    icon: "/logo.jpg",
+    apple: "/logo.jpg",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -16,9 +20,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="en"
       className={`dark h-full ${geistSans.variable} ${geistMono.variable}`}
     >
-      <head>
-        <link rel="icon" href="/logo.jpg" type="image/jpeg" />
-      </head>
       <body className="min-h-full flex flex-col bg-background text-foreground antialiased">
         {children}
       </body>

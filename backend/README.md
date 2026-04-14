@@ -1,98 +1,202 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# NGX Radar — Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+NestJS API server powering the NGX Radar intelligence platform. Scrapes live Nigerian stock prices, scores news sentiment with Groq AI, detects volume anomalies, and fires Telegram alerts for high-conviction events.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+---
 
-## Description
+## Stack
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+| Layer | Technology |
+|---|---|
+| Framework | NestJS 11 (TypeScript) |
+| Database | Neon (serverless PostgreSQL) via Drizzle ORM |
+| Scheduler | `@nestjs/schedule` (cron jobs) |
+| AI | Groq SDK — Llama 3 (sentiment analysis) |
+| Price data | NGX Pulse API (`ngxpulse.ng`) |
+| News | RSS Parser + Cheerio (HTML scraping) |
+| Alerts | Telegram Bot API |
+| Docs | Swagger UI (`@nestjs/swagger`) |
 
-## Project setup
+---
 
-```bash
-$ npm install
+## Project Structure
+
+```
+src/
+├── app.controller.ts       # GET / (health), GET /admin/detect-now, GET /admin/telegram-test
+├── app.module.ts           # Root module, seeds stocks on bootstrap
+├── app.service.ts          # Status endpoint logic
+├── main.ts                 # Bootstrap, Swagger setup, global prefix
+│
+├── database/
+│   ├── database.module.ts  # Drizzle + Neon provider (DB injection token)
+│   └── schema.ts           # Drizzle table definitions
+│
+├── stocks/
+│   ├── stocks.controller.ts  # GET /stocks, GET /stocks/:ticker, prices, news
+│   ├── stocks.service.ts     # CRUD + seedStocks() from CSV
+│   └── dto/
+│
+├── scraper/
+│   ├── yahoo.service.ts    # NGX Pulse price fetcher (fetchAndStorePrices)
+│   └── news.service.ts     # RSS + HTML news scraper, ticker detection
+│
+├── intelligence/
+│   ├── anomaly.service.ts  # Z-score volume anomaly detection
+│   ├── sentiment.service.ts# Groq Llama 3 sentiment scoring
+│   └── graham.service.ts   # Benjamin Graham fundamental scoring (0–7)
+│
+├── alerts/
+│   ├── alerts.controller.ts  # GET /alerts, GET /sectors/heatmap
+│   ├── alerts.service.ts     # Alert queries, sector heatmap aggregation
+│   ├── telegram.service.ts   # Telegram bot message sender
+│   └── dto/
+│
+└── scheduler/
+    └── scheduler.service.ts  # Cron orchestration for all pipeline steps
 ```
 
-## Compile and run the project
+---
+
+## Setup
+
+### 1. Install dependencies
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm install
 ```
 
-## Run tests
+### 2. Environment variables
+
+Create `backend/.env`:
+
+```env
+DATABASE_URL=postgresql://user:pass@host/db?sslmode=require
+GROQ_API_KEY=gsk_...
+TELEGRAM_BOT_TOKEN=<bot-id>:<token>
+TELEGRAM_CHAT_ID=<your-personal-telegram-user-id>
+NGX_PULSE_API_KEY=ngxpulse_...
+```
+
+> **Telegram Chat ID:** Message [@userinfobot](https://t.me/userinfobot) on Telegram — it replies with your user ID.
+
+### 3. Run database migrations
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npx drizzle-kit push
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### 4. Start the server
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+# Development (hot reload)
+npm run start:dev
+
+# Production
+npm run build
+npm run start:prod
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Server starts on port `3001` by default (`PORT` env var overrides).
 
-## Resources
+---
 
-Check out a few resources that may come in handy when working with NestJS:
+## API Reference
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+Full Swagger UI is available at `http://localhost:3001/api/docs` when running locally.
 
-## Support
+### Core Endpoints
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api` | Health check, market status, today's counters |
+| `GET` | `/api/stocks` | All tracked NGX stocks |
+| `GET` | `/api/stocks/:ticker` | Single stock with Graham score |
+| `GET` | `/api/stocks/:ticker/prices` | Price snapshot history |
+| `GET` | `/api/stocks/:ticker/news` | News with sentiment scores |
+| `GET` | `/api/alerts` | Paginated anomaly alert feed (filter by tier/sector) |
+| `GET` | `/api/sectors/heatmap` | Sector rotation heatmap (48h window) |
 
-## Stay in touch
+### Admin Endpoints
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/admin/detect-now` | Manually trigger full intelligence pipeline |
+| `GET` | `/api/admin/telegram-test` | Send a test Telegram message to verify bot setup |
 
-## License
+---
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+## Cron Schedule
+
+All crons use `Africa/Lagos` timezone (WAT = UTC+1).
+
+| Job | Schedule | Description |
+|---|---|---|
+| `fetchPrices` | `*/15 10-14 * * 1-5` | NGX Pulse price fetch every 15 min during market hours |
+| `scrapeNews` | `*/30 * * * *` | RSS + web news scrape every 30 min |
+| `runSentiment` | `*/30 * * * *` | Score unprocessed news items via Groq |
+| `detectAnomalies` | `0 * * * *` | Z-score anomaly detection + Telegram alerts |
+
+---
+
+## Intelligence Engine
+
+### Volume Anomaly Detection (`anomaly.service.ts`)
+
+Uses Z-score statistics against rolling historical volume:
+
+```
+Z = (current_volume - mean_volume) / std_dev_volume
+```
+
+A Z-score ≥ 2.0 triggers an anomaly event. Higher Z-scores receive higher conviction tiers.
+
+**Requires:** At least 5–10 price snapshots per stock before meaningful baselines form.
+
+### Graham Scoring (`graham.service.ts`)
+
+Scores each stock 0–7 based on Benjamin Graham's criteria:
+
+| Check | Points |
+|---|---|
+| P/E ratio ≤ 15 | +1 |
+| P/B ratio ≤ 1.5 | +1 |
+| Current ratio ≥ 2.0 | +1 |
+| No earnings loss in last 3 years | +1 |
+| Positive EPS growth | +1 |
+| Dividend history | +1 |
+| Debt-to-equity ≤ 1.0 | +1 |
+
+### Sentiment Scoring (`sentiment.service.ts`)
+
+Calls Groq Llama 3 with each unscored news headline, returns:
+- `sentimentLabel`: `BULLISH` / `BEARISH` / `NEUTRAL`
+- `sentimentScore`: float –1.0 to +1.0
+- `sentimentConfidence`: float 0.0 to 1.0
+
+---
+
+## Database Schema
+
+| Table | Purpose |
+|---|---|
+| `stocks` | Master list of NGX-listed companies |
+| `price_snapshots` | OHLCV snapshots per stock per timestamp |
+| `news_items` | Scraped headlines with ticker association |
+| `anomaly_events` | Detected anomalies with conviction tier + Groq summary |
+
+---
+
+## Deployment (Heroku)
+
+```bash
+# From repo root
+git subtree push --prefix backend heroku main
+
+# Or use the Procfile directly
+heroku create ngx-radar-api
+heroku config:set DATABASE_URL=... GROQ_API_KEY=... ...
+git push heroku main
+```
+
+The `Procfile` runs: `web: node dist/src/main.js`

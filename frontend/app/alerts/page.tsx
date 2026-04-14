@@ -19,71 +19,125 @@ const TIERS = ["HIGH", "MEDIUM", "SPECULATIVE", "DISTRIBUTION"];
 const SECTORS = ["Banking", "Telecom", "Consumer Goods", "Oil & Gas", "Cement", "Agriculture"];
 const PAGE_SIZE = 25;
 
-function FilterBar({
-  tier,
-  sector,
-}: {
-  tier: string;
-  sector: string;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-2 bg-card border border-border rounded-xl px-4 py-3">
-      <Filter size={14} className="text-muted-foreground shrink-0" />
-      <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mr-1">
-        Tier
-      </span>
-      {["", ...TIERS].map((t) => {
-        const isActive = tier === t;
-        const params = new URLSearchParams();
-        if (t) params.set("tier", t);
-        if (sector) params.set("sector", sector);
-        return (
-          <Link
-            key={t || "all"}
-            href={`/alerts?${params.toString()}`}
-            className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
-              isActive
-                ? "bg-primary/15 text-primary border-primary/30"
-                : "text-muted-foreground border-border hover:border-muted-foreground"
-            }`}
-          >
-            {t || "All"}
-          </Link>
-        );
-      })}
+function FilterBar({ tier, sector }: { tier: string; sector: string }) {
+  const tierLinks = ["", ...TIERS].map((t) => {
+    const isActive = tier === t;
+    const params = new URLSearchParams();
+    if (t) params.set("tier", t);
+    if (sector) params.set("sector", sector);
+    return (
+      <Link
+        key={t || "all-tier"}
+        href={`/alerts?${params.toString()}`}
+        className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all whitespace-nowrap ${
+          isActive
+            ? "bg-primary/15 text-primary border-primary/30"
+            : "text-muted-foreground border-border hover:border-muted-foreground hover:text-foreground"
+        }`}
+      >
+        {t || "All"}
+      </Link>
+    );
+  });
 
-      <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mx-1">
-        Sector
-      </span>
-      {["", ...SECTORS].map((s) => {
-        const isActive = sector === s;
-        const params = new URLSearchParams();
-        if (tier) params.set("tier", tier);
-        if (s) params.set("sector", s);
-        return (
-          <Link
-            key={s || "all-sector"}
-            href={`/alerts?${params.toString()}`}
-            className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
-              isActive
-                ? "bg-secondary/20 text-[#42A5F5] border-secondary/40"
-                : "text-muted-foreground border-border hover:border-muted-foreground"
-            }`}
-          >
-            {s || "All"}
-          </Link>
-        );
-      })}
+  const sectorLinks = ["", ...SECTORS].map((s) => {
+    const isActive = sector === s;
+    const params = new URLSearchParams();
+    if (tier) params.set("tier", tier);
+    if (s) params.set("sector", s);
+    return (
+      <Link
+        key={s || "all-sector"}
+        href={`/alerts?${params.toString()}`}
+        className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all whitespace-nowrap ${
+          isActive
+            ? "bg-secondary/20 text-[#42A5F5] border-secondary/40"
+            : "text-muted-foreground border-border hover:border-muted-foreground hover:text-foreground"
+        }`}
+      >
+        {s || "All"}
+      </Link>
+    );
+  });
+
+  return (
+    <div className="bg-card border border-border rounded-xl px-4 py-3">
+      {/* Large screens: single row */}
+      <div className="hidden lg:flex items-center gap-2 flex-nowrap overflow-x-auto scrollbar-none">
+        <Filter size={13} className="text-muted-foreground shrink-0" />
+        <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-widest shrink-0 ml-1">
+          Tier
+        </span>
+        {tierLinks}
+        <span className="w-px h-4 bg-border mx-4 shrink-0" />
+        <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-widest shrink-0">
+          Sector
+        </span>
+        {sectorLinks}
+      </div>
+
+      {/* Mobile / tablet: two rows */}
+      <div className="lg:hidden space-y-2.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <Filter size={13} className="text-muted-foreground shrink-0" />
+          <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-widest mr-1">
+            Tier
+          </span>
+          {tierLinks}
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="w-[13px] shrink-0" />
+          <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-widest mr-1">
+            Sector
+          </span>
+          {sectorLinks}
+        </div>
+      </div>
     </div>
+  );
+}
+
+function AlertCard({ item }: { item: AlertFeedItem }) {
+  const date = new Date(item.alert.createdAt);
+  const ago = isNaN(date.getTime()) ? "—" : formatDistanceToNow(date, { addSuffix: true });
+  const zScore = item.alert.volumeSpikeScore ? parseFloat(item.alert.volumeSpikeScore) : null;
+
+  return (
+    <Link
+      href={`/stocks/${encodeURIComponent(item.ticker)}`}
+      className="block bg-card border border-border rounded-xl p-3.5 hover:bg-accent/40 transition-colors active:scale-[0.99] group"
+    >
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-bold font-mono text-primary bg-primary/10 px-2 py-0.5 rounded-md">
+            {item.ticker.replace(".LG", "")}
+          </span>
+          <ConvictionBadge tier={item.alert.convictionTier} size="sm" />
+        </div>
+        <ArrowUpRight size={13} className="shrink-0 mt-0.5 text-muted-foreground group-hover:text-primary transition-colors" />
+      </div>
+
+      <p className="text-sm text-foreground/80 line-clamp-2 leading-snug mb-2">
+        {item.alert.summary ?? `Volume anomaly detected — ${item.stockName}`}
+      </p>
+
+      <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+        <span>{item.sector}</span>
+        {zScore !== null && (
+          <span className={zScore > 2.5 ? "text-[#FF6D00] font-semibold" : ""}>
+            {zScore.toFixed(2)}σ
+          </span>
+        )}
+        <span className="ml-auto">{ago}</span>
+      </div>
+    </Link>
   );
 }
 
 function AlertRow({ item }: { item: AlertFeedItem }) {
   const date = new Date(item.alert.createdAt);
   const ago = isNaN(date.getTime()) ? "—" : formatDistanceToNow(date, { addSuffix: true });
-  const zScore = item.alert.volumeSpikeScore
-    ? parseFloat(item.alert.volumeSpikeScore)
-    : null;
+  const zScore = item.alert.volumeSpikeScore ? parseFloat(item.alert.volumeSpikeScore) : null;
 
   return (
     <tr className="border-b border-border hover:bg-accent/30 transition-colors group">
@@ -102,9 +156,7 @@ function AlertRow({ item }: { item: AlertFeedItem }) {
       <td className="py-3 px-4 text-sm text-muted-foreground">{item.sector}</td>
       <td className="py-3 px-4">
         {zScore !== null ? (
-          <span
-            className={`text-sm font-semibold ${zScore > 2.5 ? "text-[#FF6D00]" : "text-foreground/70"}`}
-          >
+          <span className={`text-sm font-semibold ${zScore > 2.5 ? "text-[#FF6D00]" : "text-foreground/70"}`}>
             {zScore.toFixed(2)}σ
           </span>
         ) : (
@@ -121,33 +173,15 @@ function AlertRow({ item }: { item: AlertFeedItem }) {
   );
 }
 
-async function AlertsContent({
-  tier,
-  sector,
-  page,
-}: {
-  tier: string;
-  sector: string;
-  page: number;
-}) {
+async function AlertsContent({ tier, sector, page }: { tier: string; sector: string; page: number }) {
   const [alertsResult, statusResult] = await Promise.allSettled([
-    api.getAlerts({
-      tier: tier || undefined,
-      sector: sector || undefined,
-      page,
-      limit: PAGE_SIZE,
-    }),
+    api.getAlerts({ tier: tier || undefined, sector: sector || undefined, page, limit: PAGE_SIZE }),
     api.getStatus(),
   ]);
 
-  const alerts: AlertFeedItem[] =
-    alertsResult.status === "fulfilled" ? alertsResult.value : [];
-  const status =
-    statusResult.status === "fulfilled" ? statusResult.value : null;
+  const alerts: AlertFeedItem[] = alertsResult.status === "fulfilled" ? alertsResult.value : [];
+  const status = statusResult.status === "fulfilled" ? statusResult.value : null;
 
-  const totalShowing = alerts.length;
-
-  // Pagination links helper
   const buildParams = (p: number) => {
     const q = new URLSearchParams();
     if (tier) q.set("tier", tier);
@@ -160,11 +194,11 @@ async function AlertsContent({
     <>
       <Navbar marketOpen={status?.marketOpen} watTime={status?.watTime} />
 
-      <main className="flex-1 max-w-screen-xl mx-auto w-full px-4 py-6 space-y-4">
+      <main className="flex-1 max-w-screen-xl mx-auto w-full px-3 sm:px-4 py-4 sm:py-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-lg font-bold text-foreground">Alerts</h1>
+          <h1 className="text-base sm:text-lg font-bold text-foreground">Alerts</h1>
           <span className="text-xs text-muted-foreground">
-            {totalShowing} result{totalShowing !== 1 ? "s" : ""}
+            {alerts.length} result{alerts.length !== 1 ? "s" : ""}
             {(tier || sector) && " (filtered)"}
           </span>
         </div>
@@ -172,31 +206,46 @@ async function AlertsContent({
         <FilterBar tier={tier} sector={sector} />
 
         {alerts.length === 0 ? (
-          <div className="bg-card border border-border rounded-xl p-12 text-center text-muted-foreground text-sm">
-            No alerts found for the selected filters. The cron job runs hourly.
+          <div className="bg-card border border-border rounded-xl p-10 sm:p-12 text-center">
+            <p className="text-muted-foreground text-sm">
+              No alerts found for the selected filters.
+            </p>
+            <p className="text-muted-foreground/60 text-xs mt-1">
+              The intelligence cron runs hourly. Hit <strong>Detect Now</strong> on the dashboard to trigger it manually.
+            </p>
           </div>
         ) : (
-          <div className="bg-card border border-border rounded-xl overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wider">
-                    <th className="text-left py-3 px-4 font-medium">Ticker</th>
-                    <th className="text-left py-3 px-4 font-medium">Conviction</th>
-                    <th className="text-left py-3 px-4 font-medium">Sector</th>
-                    <th className="text-left py-3 px-4 font-medium">Z-Score</th>
-                    <th className="text-left py-3 px-4 font-medium">Summary</th>
-                    <th className="text-left py-3 px-4 font-medium">Time</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {alerts.map((item) => (
-                    <AlertRow key={item.alert.id} item={item} />
-                  ))}
-                </tbody>
-              </table>
+          <>
+            {/* Mobile: card list */}
+            <div className="sm:hidden space-y-2">
+              {alerts.map((item) => (
+                <AlertCard key={item.alert.id} item={item} />
+              ))}
             </div>
-          </div>
+
+            {/* Desktop: table */}
+            <div className="hidden sm:block bg-card border border-border rounded-xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wider">
+                      <th className="text-left py-3 px-4 font-medium">Ticker</th>
+                      <th className="text-left py-3 px-4 font-medium">Conviction</th>
+                      <th className="text-left py-3 px-4 font-medium">Sector</th>
+                      <th className="text-left py-3 px-4 font-medium">Z-Score</th>
+                      <th className="text-left py-3 px-4 font-medium">Summary</th>
+                      <th className="text-left py-3 px-4 font-medium">Time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {alerts.map((item) => (
+                      <AlertRow key={item.alert.id} item={item} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
         )}
 
         {/* Pagination */}
@@ -207,15 +256,15 @@ async function AlertsContent({
               {page > 1 && (
                 <Link
                   href={`/alerts?${buildParams(page - 1)}`}
-                  className="px-3 py-1.5 bg-card border border-border rounded-lg hover:bg-accent transition-colors text-foreground"
+                  className="px-3 py-1.5 bg-card border border-border rounded-lg hover:bg-accent transition-colors text-foreground text-xs"
                 >
                   ← Prev
                 </Link>
               )}
-              {totalShowing === PAGE_SIZE && (
+              {alerts.length === PAGE_SIZE && (
                 <Link
                   href={`/alerts?${buildParams(page + 1)}`}
-                  className="px-3 py-1.5 bg-card border border-border rounded-lg hover:bg-accent transition-colors text-foreground"
+                  className="px-3 py-1.5 bg-card border border-border rounded-lg hover:bg-accent transition-colors text-foreground text-xs"
                 >
                   Next →
                 </Link>

@@ -9,6 +9,8 @@ import { SchedulerModule } from './scheduler/scheduler.module';
 import { StocksService } from './stocks/stocks.service';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AnomalyService } from './intelligence/anomaly.service';
+import { TelegramService } from './alerts/telegram.service';
 
 @Module({
   imports: [
@@ -21,7 +23,7 @@ import { AppService } from './app.service';
     SchedulerModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, AnomalyService, TelegramService],
 })
 export class AppModule implements OnApplicationBootstrap {
   constructor(private readonly stocksService: StocksService) {}

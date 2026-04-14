@@ -49,4 +49,11 @@ export const api = {
   }) => get<AlertFeedItem[]>(`/api/alerts${qs(params)}`),
 
   getSectorHeatmap: () => get<SectorHeatmapItem[]>("/api/sectors/heatmap"),
+
+  detectNow: () =>
+    get<{ triggered: boolean; eventsDetected: number; timestamp: string }>(
+      "/api/admin/detect-now"
+    ),
+
+  telegramTest: () => get<{ sent: boolean }>("/api/admin/telegram-test"),
 };
