@@ -3,6 +3,7 @@ import { desc, eq } from 'drizzle-orm';
 import { NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import { DB } from '../database/database.module';
 import * as schema from '../database/schema';
+import { isNotNull } from 'drizzle-orm';
 
 const NGX_STOCKS = [
   { ticker: 'DANGCEM.LG', name: 'Dangote Cement', sector: 'Cement', marketCapTier: 'large' },
@@ -66,5 +67,29 @@ export class StocksService {
       .where(eq(schema.priceSnapshots.stockId, stock.id))
       .orderBy(desc(schema.priceSnapshots.timestamp))
       .limit(limit);
+  }
+
+  async getNewsWithSentiment(ticker: string, limit = 20) {
+    const rows = await this.db
+      .select({
+        id: schema.newsItems.id,
+        headline: schema.newsItems.headline,
+        source: schema.newsItems.source,
+        url: schema.newsItems.url,
+        scrapedAt: schema.newsItems.scrapedAt,
+        sentimentScore: schema.sentimentScores.score,
+        sentimentLabel: schema.sentimentScores.label,
+        sentimentConfidence: schema.sentimentScores.confidence,
+      })
+      .from(schema.newsItems)
+      .leftJoin(
+        schema.sentimentScores,
+        eq(schema.sentimentScores.newsItemId, schema.newsItems.id),
+      )
+      .where(eq(schema.newsItems.tickerMentioned, ticker.toUpperCase()))
+      .orderBy(desc(schema.newsItems.scrapedAt))
+      .limit(limit);
+
+    return rows;
   }
 }
