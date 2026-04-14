@@ -1,32 +1,83 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { desc, eq } from 'drizzle-orm';
 import { NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import { DB } from '../database/database.module';
 import * as schema from '../database/schema';
 import { isNotNull } from 'drizzle-orm';
+import * as fs from 'fs';
+import * as path from 'path';
 
-const NGX_STOCKS = [
-  { ticker: 'DANGCEM.LG', name: 'Dangote Cement', sector: 'Cement', marketCapTier: 'large' },
-  { ticker: 'GTCO.LG', name: 'Guaranty Trust Holding Co', sector: 'Banking', marketCapTier: 'large' },
-  { ticker: 'ZENITHBANK.LG', name: 'Zenith Bank', sector: 'Banking', marketCapTier: 'large' },
-  { ticker: 'MTNN.LG', name: 'MTN Nigeria', sector: 'Telecom', marketCapTier: 'large' },
-  { ticker: 'AIRTELAFRI.LG', name: 'Airtel Africa', sector: 'Telecom', marketCapTier: 'large' },
-  { ticker: 'BUAFOODS.LG', name: 'BUA Foods', sector: 'Consumer Goods', marketCapTier: 'large' },
-  { ticker: 'SEPLAT.LG', name: 'Seplat Energy', sector: 'Oil & Gas', marketCapTier: 'mid' },
-  { ticker: 'ACCESSCORP.LG', name: 'Access Holdings', sector: 'Banking', marketCapTier: 'large' },
-  { ticker: 'UBA.LG', name: 'United Bank for Africa', sector: 'Banking', marketCapTier: 'large' },
-  { ticker: 'FBNH.LG', name: 'FBN Holdings', sector: 'Banking', marketCapTier: 'large' },
-  { ticker: 'NESTLE.LG', name: 'Nestle Nigeria', sector: 'Consumer Goods', marketCapTier: 'large' },
-  { ticker: 'FLOURMILL.LG', name: 'Flour Mills Nigeria', sector: 'Consumer Goods', marketCapTier: 'mid' },
-  { ticker: 'TRANSCORP.LG', name: 'Transcorp', sector: 'Oil & Gas', marketCapTier: 'mid' },
-  { ticker: 'OKOMUOIL.LG', name: 'Okomu Oil Palm', sector: 'Agriculture', marketCapTier: 'mid' },
-  { ticker: 'PRESCO.LG', name: 'Presco', sector: 'Agriculture', marketCapTier: 'mid' },
-  { ticker: 'BUACEMENT.LG', name: 'BUA Cement', sector: 'Cement', marketCapTier: 'large' },
-  { ticker: 'STANBIC.LG', name: 'Stanbic IBTC Holdings', sector: 'Banking', marketCapTier: 'mid' },
-  { ticker: 'FIDELITYBK.LG', name: 'Fidelity Bank', sector: 'Banking', marketCapTier: 'mid' },
-  { ticker: 'WAPCO.LG', name: 'Lafarge Africa', sector: 'Cement', marketCapTier: 'mid' },
-  { ticker: 'TOTAL.LG', name: 'TotalEnergies Marketing Nigeria', sector: 'Oil & Gas', marketCapTier: 'mid' },
-];
+// Active status markers to INCLUDE (still tradeable)
+const INCLUDE_MARKERS = ['', '[MRF]', '[BMF]'];
+
+function parseCsv(): Array<{ ticker: string }> {
+  const csvPath = path.join(process.cwd(), 'nigerian_companies.csv');
+  if (!fs.existsSync(csvPath)) return [];
+
+  const lines = fs.readFileSync(csvPath, 'utf-8').split('\n').slice(1); // skip header
+  const results: Array<{ ticker: string }> = [];
+
+  for (const line of lines) {
+    const raw = line.trim();
+    if (!raw) continue;
+
+    const markerMatch = raw.match(/\[([A-Z]+)\]$/);
+    const marker = markerMatch ? `[${markerMatch[1]}]` : '';
+
+    if (!INCLUDE_MARKERS.includes(marker)) continue;
+
+    const ticker = raw.replace(/\s*\[[A-Z]+\]$/, '').trim();
+    if (ticker) results.push({ ticker: `${ticker}.LG` });
+  }
+
+  return results;
+}
+
+// Static sector map for well-known NGX tickers
+const SECTOR_MAP: Record<string, string> = {
+  // Banking
+  'ACCESSCORP.LG': 'Banking', 'FCMB.LG': 'Banking', 'FIDELITYBK.LG': 'Banking',
+  'FIRSTHOLDCO.LG': 'Banking', 'GTCO.LG': 'Banking', 'JAIZBANK.LG': 'Banking',
+  'STANBIC.LG': 'Banking', 'STERLINGNG.LG': 'Banking', 'UBA.LG': 'Banking',
+  'UNITYBNK.LG': 'Banking', 'WEMABANK.LG': 'Banking', 'ZENITHBANK.LG': 'Banking',
+  'FBNH.LG': 'Banking', 'LIVINGTRUST.LG': 'Banking', 'VFDGROUP.LG': 'Banking',
+  // Telecom
+  'MTNN.LG': 'Telecom', 'AIRTELAFRI.LG': 'Telecom', 'CWG.LG': 'Telecom',
+  'ETRANZACT.LG': 'Telecom', 'CHAMS.LG': 'Telecom', 'NSLTECH.LG': 'Telecom',
+  // Consumer Goods
+  'BUAFOODS.LG': 'Consumer Goods', 'CADBURY.LG': 'Consumer Goods', 'DANGSUGAR.LG': 'Consumer Goods',
+  'FLOURMILL.LG': 'Consumer Goods', 'GUINNESS.LG': 'Consumer Goods', 'NB.LG': 'Consumer Goods',
+  'NASCON.LG': 'Consumer Goods', 'NESTLE.LG': 'Consumer Goods', 'PZ.LG': 'Consumer Goods',
+  'UACN.LG': 'Consumer Goods', 'UNILEVER.LG': 'Consumer Goods', 'VITAFOAM.LG': 'Consumer Goods',
+  'NNFM.LG': 'Consumer Goods',
+  // Oil & Gas
+  'ARADEL.LG': 'Oil & Gas', 'CONOIL.LG': 'Oil & Gas', 'ETERNA.LG': 'Oil & Gas',
+  'MRS.LG': 'Oil & Gas', 'OANDO.LG': 'Oil & Gas', 'SEPLAT.LG': 'Oil & Gas',
+  'TOTAL.LG': 'Oil & Gas', 'TRANSCORP.LG': 'Oil & Gas', 'GEREGU.LG': 'Oil & Gas',
+  // Cement
+  'BUACEMENT.LG': 'Cement', 'DANGCEM.LG': 'Cement', 'WAPCO.LG': 'Cement',
+  // Agriculture
+  'OKOMUOIL.LG': 'Agriculture', 'PRESCO.LG': 'Agriculture', 'LIVESTOCK.LG': 'Agriculture',
+  'ELLAHLAKES.LG': 'Agriculture', 'FTNCOCOA.LG': 'Agriculture',
+  // Insurance
+  'AIICO.LG': 'Insurance', 'CORNERST.LG': 'Insurance', 'CUSTODIAN.LG': 'Insurance',
+  'GUINEAINS.LG': 'Insurance', 'LASACO.LG': 'Insurance', 'LINKASSURE.LG': 'Insurance',
+  'MANSARD.LG': 'Insurance', 'NEM.LG': 'Insurance', 'REGALINS.LG': 'Insurance',
+  'SOVRENINS.LG': 'Insurance', 'SUNUASSUR.LG': 'Insurance', 'UNIVINSURE.LG': 'Insurance',
+  'WAPIC.LG': 'Insurance', 'VERITASKAP.LG': 'Insurance',
+  // Healthcare
+  'FIDSON.LG': 'Healthcare', 'MAYBAKER.LG': 'Healthcare', 'MORISON.LG': 'Healthcare',
+  'NEIMETH.LG': 'Healthcare',
+  // Industrial
+  'BETAGLAS.LG': 'Industrial', 'BERGER.LG': 'Industrial', 'CAP.LG': 'Industrial',
+  'CUTIX.LG': 'Industrial', 'ENAMELWA.LG': 'Industrial', 'JBERGER.LG': 'Industrial',
+  'MEYER.LG': 'Industrial', 'TRANSPOWER.LG': 'Industrial',
+  // Other
+  'ABBEYBDS.LG': 'Other', 'AFRIPRUD.LG': 'Other', 'CAVERTON.LG': 'Other',
+  'IKEJAHOTEL.LG': 'Other', 'NAHCO.LG': 'Other', 'NGXGROUP.LG': 'Other',
+  'REDSTAREX.LG': 'Other', 'SKYAVN.LG': 'Other', 'TRANSCOHOT.LG': 'Other',
+  'UCAP.LG': 'Other',
+};
 
 @Injectable()
 export class StocksService {
@@ -37,11 +88,30 @@ export class StocksService {
   ) {}
 
   async seedStocks(): Promise<void> {
-    await this.db
-      .insert(schema.stocks)
-      .values(NGX_STOCKS)
-      .onConflictDoNothing();
-    this.logger.log('[SEED] 20 NGX stocks seeded (skipped duplicates)');
+    const csvTickers = parseCsv();
+    const toSeed = csvTickers.length > 0 ? csvTickers : this.fallbackStocks();
+
+    const values = toSeed.map((t) => ({
+      ticker: t.ticker,
+      name: t.ticker.replace('.LG', ''),
+      sector: SECTOR_MAP[t.ticker] ?? 'Other',
+      marketCapTier: 'mid' as const,
+    }));
+
+    await this.db.insert(schema.stocks).values(values).onConflictDoNothing();
+    this.logger.log(`[SEED] ${values.length} NGX stocks seeded (skipped duplicates)`);
+  }
+
+  private fallbackStocks() {
+    return [
+      { ticker: 'DANGCEM.LG' }, { ticker: 'GTCO.LG' }, { ticker: 'ZENITHBANK.LG' },
+      { ticker: 'MTNN.LG' }, { ticker: 'AIRTELAFRI.LG' }, { ticker: 'BUAFOODS.LG' },
+      { ticker: 'SEPLAT.LG' }, { ticker: 'ACCESSCORP.LG' }, { ticker: 'UBA.LG' },
+      { ticker: 'FBNH.LG' }, { ticker: 'NESTLE.LG' }, { ticker: 'FLOURMILL.LG' },
+      { ticker: 'TRANSCORP.LG' }, { ticker: 'OKOMUOIL.LG' }, { ticker: 'PRESCO.LG' },
+      { ticker: 'BUACEMENT.LG' }, { ticker: 'STANBIC.LG' }, { ticker: 'FIDELITYBK.LG' },
+      { ticker: 'WAPCO.LG' }, { ticker: 'TOTAL.LG' },
+    ];
   }
 
   async findAll() {

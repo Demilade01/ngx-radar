@@ -1,64 +1,62 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import { DB } from '../database/database.module';
 import * as schema from '../database/schema';
 import RSSParser from 'rss-parser';
 import * as cheerio from 'cheerio';
 
-const TICKER_KEYWORDS: Record<string, string> = {
-  'Dangote Cement': 'DANGCEM.LG',
-  DANGCEM: 'DANGCEM.LG',
-  'Guaranty Trust': 'GTCO.LG',
-  GTCO: 'GTCO.LG',
-  'Zenith Bank': 'ZENITHBANK.LG',
-  Zenith: 'ZENITHBANK.LG',
-  'MTN Nigeria': 'MTNN.LG',
-  MTN: 'MTNN.LG',
-  'Airtel Africa': 'AIRTELAFRI.LG',
-  Airtel: 'AIRTELAFRI.LG',
-  'BUA Foods': 'BUAFOODS.LG',
-  Seplat: 'SEPLAT.LG',
-  'Access Holdings': 'ACCESSCORP.LG',
-  'Access Bank': 'ACCESSCORP.LG',
-  'United Bank': 'UBA.LG',
-  UBA: 'UBA.LG',
-  'FBN Holdings': 'FBNH.LG',
-  'First Bank': 'FBNH.LG',
-  'Nestle Nigeria': 'NESTLE.LG',
-  Nestle: 'NESTLE.LG',
-  'Flour Mills': 'FLOURMILL.LG',
-  Transcorp: 'TRANSCORP.LG',
-  'Okomu Oil': 'OKOMUOIL.LG',
-  Presco: 'PRESCO.LG',
-  'BUA Cement': 'BUACEMENT.LG',
-  'Stanbic IBTC': 'STANBIC.LG',
-  Stanbic: 'STANBIC.LG',
-  'Fidelity Bank': 'FIDELITYBK.LG',
-  Fidelity: 'FIDELITYBK.LG',
-  'Lafarge Africa': 'WAPCO.LG',
-  Lafarge: 'WAPCO.LG',
-  TotalEnergies: 'TOTAL.LG',
-};
-
-function detectTicker(headline: string): string | null {
-  for (const [keyword, ticker] of Object.entries(TICKER_KEYWORDS)) {
-    if (headline.toLowerCase().includes(keyword.toLowerCase())) {
-      return ticker;
-    }
-  }
-  return null;
-}
-
 @Injectable()
-export class NewsService {
+export class NewsService implements OnModuleInit {
   private readonly logger = new Logger(NewsService.name);
   private readonly rssParser = new RSSParser();
+
+  // Built dynamically from DB on module init
+  private tickerKeywords: Array<{ keyword: string; ticker: string }> = [];
 
   constructor(
     @Inject(DB) private readonly db: NeonHttpDatabase<typeof schema>,
   ) {}
 
+  async onModuleInit() {
+    await this.buildTickerKeywords();
+  }
+
+  private async buildTickerKeywords() {
+    const stocks = await this.db
+      .select({ ticker: schema.stocks.ticker, name: schema.stocks.name })
+      .from(schema.stocks);
+
+    this.tickerKeywords = stocks.flatMap((s) => {
+      const symbol = s.ticker.replace('.LG', '');
+      const entries: Array<{ keyword: string; ticker: string }> = [
+        { keyword: symbol, ticker: s.ticker },
+      ];
+      if (s.name && s.name !== symbol) {
+        entries.push({ keyword: s.name, ticker: s.ticker });
+        // Add first meaningful word if name is multi-word
+        const firstWord = s.name.split(' ')[0];
+        if (firstWord.length > 4) {
+          entries.push({ keyword: firstWord, ticker: s.ticker });
+        }
+      }
+      return entries;
+    });
+
+    this.logger.log(`[NEWS] Ticker keywords built: ${this.tickerKeywords.length} entries`);
+  }
+
+  private detectTicker(headline: string): string | null {
+    const lower = headline.toLowerCase();
+    for (const { keyword, ticker } of this.tickerKeywords) {
+      if (lower.includes(keyword.toLowerCase())) return ticker;
+    }
+    return null;
+  }
+
   async scrapeAll(): Promise<number> {
+    // Refresh keywords in case new stocks were added
+    await this.buildTickerKeywords();
+
     const results = await Promise.allSettled([
       this.scrapeNairametrics(),
       this.scrapeBusinessDay(),
@@ -86,7 +84,7 @@ export class NewsService {
       headline: item.title ?? '',
       url: item.link ?? '',
       source: 'nairametrics',
-      tickerMentioned: detectTicker(item.title ?? ''),
+      tickerMentioned: this.detectTicker(item.title ?? ''),
       scrapedAt: new Date(),
     }));
     return this.insertItems(items);
@@ -94,7 +92,7 @@ export class NewsService {
 
   private async scrapeBusinessDay(): Promise<number> {
     const res = await fetch('https://businessday.ng/markets', {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NGXRadar/1.0)' },
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Ngix/1.0)' },
       signal: AbortSignal.timeout(10000),
     });
     const html = await res.text();
@@ -109,7 +107,7 @@ export class NewsService {
           headline,
           url: href.startsWith('http') ? href : `https://businessday.ng${href}`,
           source: 'businessday',
-          tickerMentioned: detectTicker(headline),
+          tickerMentioned: this.detectTicker(headline),
           scrapedAt: new Date(),
         });
       }
@@ -120,7 +118,7 @@ export class NewsService {
 
   private async scrapeVanguard(): Promise<number> {
     const res = await fetch('https://www.vanguardngr.com/category/business', {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NGXRadar/1.0)' },
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Ngix/1.0)' },
       signal: AbortSignal.timeout(10000),
     });
     const html = await res.text();
@@ -135,7 +133,7 @@ export class NewsService {
           headline,
           url: href.startsWith('http') ? href : `https://www.vanguardngr.com${href}`,
           source: 'vanguard',
-          tickerMentioned: detectTicker(headline),
+          tickerMentioned: this.detectTicker(headline),
           scrapedAt: new Date(),
         });
       }

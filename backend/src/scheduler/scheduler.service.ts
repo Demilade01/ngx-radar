@@ -20,8 +20,8 @@ export class SchedulerService {
     private readonly telegramService: TelegramService,
   ) {}
 
-  // Every 15 min, market hours WAT (Mon–Fri 9am–2:45pm)
-  @Cron('*/15 9-14 * * 1-5', { timeZone: 'Africa/Lagos' })
+  // Every 15 min during NGX market hours: 10:00 AM – 2:30 PM WAT (Mon–Fri)
+  @Cron('*/15 10-14 * * 1-5', { timeZone: 'Africa/Lagos' })
   async fetchPrices() {
     this.logger.log(`[CRON] fetch-prices fired at ${new Date().toISOString()}`);
     const result = await this.yahooService.fetchAndStorePrices();
