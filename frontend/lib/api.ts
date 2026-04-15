@@ -5,6 +5,9 @@ import type {
   SectorHeatmapItem,
   NewsItemWithSentiment,
   StatusResponse,
+  TechnicalSignals,
+  TopSignalItem,
+  AllSignalItem,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
@@ -56,4 +59,11 @@ export const api = {
     ),
 
   telegramTest: () => get<{ sent: boolean }>("/api/admin/telegram-test"),
+
+  getStockSignals: (ticker: string) =>
+    get<TechnicalSignals>(`/api/stocks/${encodeURIComponent(ticker)}/signals`),
+
+  getTopSignals: () => get<TopSignalItem[]>("/api/quant/top-signals"),
+
+  getAllSignals: () => get<AllSignalItem[]>("/api/quant/all-signals"),
 };

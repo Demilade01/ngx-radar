@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 import Navbar from "@/components/Navbar";
 import Link from "next/link";
 import { ArrowUpRight, Loader2, Search } from "lucide-react";
-import type { Stock } from "@/lib/types";
+import type { Stock, AllSignalItem } from "@/lib/types";
 
 interface StocksPageProps {
   searchParams: Promise<{ q?: string; sector?: string }>;
@@ -16,13 +16,18 @@ const SECTORS = [
 ];
 
 async function StocksContent({ q, sector }: { q: string; sector: string }) {
-  const [stocksResult, statusResult] = await Promise.allSettled([
+  const [stocksResult, statusResult, signalsResult] = await Promise.allSettled([
     api.getStocks(),
     api.getStatus(),
+    api.getAllSignals(),
   ]);
 
   const allStocks: Stock[] = stocksResult.status === "fulfilled" ? stocksResult.value : [];
   const status = statusResult.status === "fulfilled" ? statusResult.value : null;
+  const allSignals: AllSignalItem[] = signalsResult.status === "fulfilled" ? signalsResult.value : [];
+
+  // Build a quick lookup map: ticker → { quantScore, signal }
+  const signalMap = new Map<string, AllSignalItem>(allSignals.map((s) => [s.ticker, s]));
 
   const filtered = allStocks.filter((s) => {
     const matchQ =
@@ -127,6 +132,7 @@ async function StocksContent({ q, sector }: { q: string; sector: string }) {
                       <th className="text-left py-3 px-4 font-medium">Sector</th>
                       <th className="text-left py-3 px-4 font-medium">Cap Tier</th>
                       <th className="text-left py-3 px-4 font-medium">Graham</th>
+                      <th className="text-left py-3 px-4 font-medium">Quant</th>
                       <th className="py-3 px-4 w-8" />
                     </tr>
                   </thead>
@@ -167,6 +173,20 @@ async function StocksContent({ q, sector }: { q: string; sector: string }) {
                           ) : (
                             <span className="text-muted-foreground/50 text-xs">—</span>
                           )}
+                        </td>
+                        <td className="py-2.5 px-4">
+                          {(() => {
+                            const sig = signalMap.get(s.ticker);
+                            if (!sig || sig.quantScore === null) {
+                              return <span className="text-muted-foreground/50 text-xs">—</span>;
+                            }
+                            const qs = sig.quantScore;
+                            const color =
+                              qs >= 70 ? "text-[#00E676]" : qs >= 40 ? "text-[#FFD600]" : "text-[#FF1744]";
+                            return (
+                              <span className={`text-xs font-bold ${color}`}>{qs}</span>
+                            );
+                          })()}
                         </td>
                         <td className="py-2.5 px-4 text-right">
                           <Link

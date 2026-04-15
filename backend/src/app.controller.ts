@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiOkResponse, ApiProperty } from '@nestjs/swagg
 import { AppService } from './app.service';
 import { AnomalyService } from './intelligence/anomaly.service';
 import { TelegramService } from './alerts/telegram.service';
+import { QuantService } from './intelligence/quant.service';
 
 export class StatusResponseDto {
   @ApiProperty({ example: 'ok' })
@@ -40,7 +41,9 @@ export class AppController {
     private readonly appService: AppService,
     private readonly anomalyService: AnomalyService,
     private readonly telegramService: TelegramService,
+    private readonly quantService: QuantService,
   ) {}
+
 
   @Get()
   @ApiOperation({
@@ -87,5 +90,26 @@ export class AppController {
       `🔔 <b>Ngix — Connection Test</b>\n\nTelegram alerts are working correctly.\n<i>${new Date().toLocaleString('en-NG', { timeZone: 'Africa/Lagos' })} WAT</i>`,
     );
     return { sent: true };
+  }
+
+  @Get('admin/quant-now')
+  @ApiOperation({
+    summary: '[Admin] Manually trigger QuantScore computation for all stocks',
+    description:
+      'Immediately runs the quantitative signal computation pipeline for all tracked stocks. Useful for testing without waiting for the 15-min cron. Stocks with fewer than 27 price snapshots are skipped.',
+  })
+  @ApiOkResponse({
+    schema: {
+      example: { triggered: true, updated: 18, skipped: 2, timestamp: '2026-04-15T10:00:00.000Z' },
+    },
+  })
+  async quantNow() {
+    const result = await this.quantService.updateAllSignals();
+    return {
+      triggered: true,
+      updated: result.updated,
+      skipped: result.skipped,
+      timestamp: new Date().toISOString(),
+    };
   }
 }
