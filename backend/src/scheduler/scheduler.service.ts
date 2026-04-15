@@ -4,6 +4,7 @@ import { YahooService } from '../scraper/yahoo.service';
 import { NewsService } from '../scraper/news.service';
 import { AnomalyService } from '../intelligence/anomaly.service';
 import { GrahamService } from '../intelligence/graham.service';
+import { QuantService } from '../intelligence/quant.service';
 import { AlertsService } from '../alerts/alerts.service';
 import { TelegramService } from '../alerts/telegram.service';
 
@@ -16,9 +17,11 @@ export class SchedulerService {
     private readonly newsService: NewsService,
     private readonly anomalyService: AnomalyService,
     private readonly grahamService: GrahamService,
+    private readonly quantService: QuantService,
     private readonly alertsService: AlertsService,
     private readonly telegramService: TelegramService,
   ) {}
+
 
   // Every 15 min during NGX market hours: 10:00 AM – 2:30 PM WAT (Mon–Fri)
   @Cron('*/15 10-14 * * 1-5', { timeZone: 'Africa/Lagos' })
@@ -27,6 +30,16 @@ export class SchedulerService {
     const result = await this.yahooService.fetchAndStorePrices();
     this.logger.log(
       `[CRON] fetch-prices complete — ${result.success} ok, ${result.failed} failed`,
+    );
+  }
+
+  // Quant signals: every 15 min during market hours, piggybacking on fetch-prices schedule
+  @Cron('*/15 10-14 * * 1-5', { timeZone: 'Africa/Lagos' })
+  async updateQuantSignals() {
+    this.logger.log(`[CRON] quant-signals fired at ${new Date().toISOString()}`);
+    const result = await this.quantService.updateAllSignals();
+    this.logger.log(
+      `[CRON] quant-signals complete — ${result.updated} updated, ${result.skipped} skipped`,
     );
   }
 

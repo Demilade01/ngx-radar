@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import Navbar from "@/components/Navbar";
 import StockChart from "@/components/StockChart";
 import GrahamScoreCard from "@/components/GrahamScoreCard";
+import QuantScoreCard from "@/components/QuantScoreCard";
 import NewsTimeline from "@/components/NewsTimeline";
 import { ArrowLeft, Building2, Tag } from "lucide-react";
 import Link from "next/link";
@@ -13,12 +14,14 @@ interface PageProps {
 }
 
 async function StockContent({ ticker }: { ticker: string }) {
-  const [stockResult, pricesResult, newsResult, statusResult] = await Promise.allSettled([
-    api.getStock(ticker),
-    api.getStockPrices(ticker),
-    api.getStockNews(ticker),
-    api.getStatus(),
-  ]);
+  const [stockResult, pricesResult, newsResult, statusResult, signalsResult] =
+    await Promise.allSettled([
+      api.getStock(ticker),
+      api.getStockPrices(ticker),
+      api.getStockNews(ticker),
+      api.getStatus(),
+      api.getStockSignals(ticker),
+    ]);
 
   if (stockResult.status === "rejected") notFound();
 
@@ -26,6 +29,8 @@ async function StockContent({ ticker }: { ticker: string }) {
   const prices = pricesResult.status === "fulfilled" ? pricesResult.value : [];
   const news = newsResult.status === "fulfilled" ? newsResult.value : [];
   const status = statusResult.status === "fulfilled" ? statusResult.value : null;
+  // 404 is expected when signals not computed yet — treat as null
+  const signals = signalsResult.status === "fulfilled" ? signalsResult.value : null;
 
   const latestPrice = prices.length ? parseFloat(prices[0].price) : null;
   const prevPrice = prices.length > 1 ? parseFloat(prices[1].price) : null;
@@ -97,32 +102,40 @@ async function StockContent({ ticker }: { ticker: string }) {
           )}
         </div>
 
-        {/* Chart */}
+        {/* Chart — now with optional signals for BB + RSI */}
         {prices.length > 0 && (
           <section className="bg-card border border-border rounded-xl p-4 sm:p-5">
             <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">
               Price & Volume
             </h2>
-            <StockChart snapshots={prices} ticker={stock.ticker} />
+            <StockChart snapshots={prices} ticker={stock.ticker} signals={signals} />
           </section>
         )}
 
-        {/* Graham + News — stack on mobile, side-by-side on lg */}
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-          <section className="lg:col-span-2 bg-card border border-border rounded-xl p-4 sm:p-5">
+        {/* QuantScoreCard + GrahamScoreCard — two-column on lg */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <section className="bg-card border border-border rounded-xl p-4 sm:p-5">
             <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">
-              Graham Score
+              Quant Intelligence Score
+            </h2>
+            <QuantScoreCard signals={signals} />
+          </section>
+
+          <section className="bg-card border border-border rounded-xl p-4 sm:p-5">
+            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">
+              Graham Fundamental Score
             </h2>
             <GrahamScoreCard stock={stock} />
           </section>
-
-          <section className="lg:col-span-3 bg-card border border-border rounded-xl p-4 sm:p-5">
-            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">
-              News Timeline
-            </h2>
-            <NewsTimeline items={news} />
-          </section>
         </div>
+
+        {/* News timeline — full width below */}
+        <section className="bg-card border border-border rounded-xl p-4 sm:p-5">
+          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">
+            News Timeline
+          </h2>
+          <NewsTimeline items={news} />
+        </section>
       </main>
     </>
   );

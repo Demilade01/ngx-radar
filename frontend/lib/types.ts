@@ -66,3 +66,41 @@ export interface StatusResponse {
   priceSnapshotsToday: number;
   timestamp: string;
 }
+
+export interface TechnicalSignals {
+  id: number;
+  stockId: number;
+  rsi14: string | null;
+  macdLine: string | null;
+  macdSignal: string | null;
+  macdHistogram: string | null;
+  bbUpper: string | null;
+  bbLower: string | null;
+  bbPosition: string | null;
+  sma20: string | null;
+  sma50: string | null;
+  trendSlope: string | null;
+  trendR2: string | null;
+  momentum5: string | null;
+  momentum20: string | null;
+  meanReversionZ: string | null;
+  quantScore: number | null;
+  signal: "BUY" | "SELL" | "HOLD" | null;
+  computedAt: string;
+}
+
+export interface TopSignalItem {
+  ticker: string;
+  name: string;
+  sector: string;
+  quantScore: number | null;
+  signal: string | null;
+  rsi14: string | null;
+  momentum20: string | null;
+}
+
+export interface AllSignalItem {
+  ticker: string;
+  quantScore: number | null;
+  signal: string | null;
+}

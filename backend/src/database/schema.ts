@@ -6,6 +6,7 @@ import {
   bigint,
   timestamp,
   integer,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 export const stocks = pgTable('stocks', {
@@ -63,3 +64,31 @@ export const anomalyEvents = pgTable('anomaly_events', {
   summary: text('summary'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+export const technicalSignals = pgTable(
+  'technical_signals',
+  {
+    id: serial('id').primaryKey(),
+    stockId: integer('stock_id')
+      .references(() => stocks.id)
+      .notNull(),
+    rsi14: numeric('rsi14'),
+    macdLine: numeric('macd_line'),
+    macdSignal: numeric('macd_signal'),
+    macdHistogram: numeric('macd_histogram'),
+    bbUpper: numeric('bb_upper'),
+    bbLower: numeric('bb_lower'),
+    bbPosition: numeric('bb_position'),
+    sma20: numeric('sma20'),
+    sma50: numeric('sma50'),
+    trendSlope: numeric('trend_slope'),
+    trendR2: numeric('trend_r2'),
+    momentum5: numeric('momentum5'),
+    momentum20: numeric('momentum20'),
+    meanReversionZ: numeric('mean_reversion_z'),
+    quantScore: integer('quant_score'),
+    signal: text('signal'), // 'BUY' | 'SELL' | 'HOLD'
+    computedAt: timestamp('computed_at').defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex('technical_signals_stock_id_idx').on(table.stockId)],
+);

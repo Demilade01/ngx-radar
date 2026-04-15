@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
 
 interface LoginFormProps {
   callbackUrl: string;
@@ -39,14 +38,13 @@ export default function LoginForm({ callbackUrl }: LoginFormProps) {
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8 gap-3">
-          <Image
+          <img
             src="/logo.jpg"
             alt="Ngix"
             width={0}
             height={0}
             sizes="100vw"
             style={{ height: 64, width: "auto" }}
-            priority
           />
           <div className="text-center">
             <h1 className="text-2xl font-bold text-foreground tracking-tight">Ngix</h1>

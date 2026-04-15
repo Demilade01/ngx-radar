@@ -10,23 +10,27 @@ import {
   BarChart2,
   Bell,
   TrendingUp,
+  TrendingDown,
   Loader2,
   ArrowUpRight,
+  Zap,
 } from "lucide-react";
-import type { Stock } from "@/lib/types";
+import type { Stock, TopSignalItem } from "@/lib/types";
 
 async function DashboardContent() {
-  const [status, alerts, heatmap, stocks] = await Promise.allSettled([
+  const [status, alerts, heatmap, stocks, topSignals] = await Promise.allSettled([
     api.getStatus(),
     api.getAlerts({ limit: 20 }),
     api.getSectorHeatmap(),
     api.getStocks(),
+    api.getTopSignals(),
   ]);
 
   const statusData = status.status === "fulfilled" ? status.value : null;
   const alertsData = alerts.status === "fulfilled" ? alerts.value : [];
   const heatmapData = heatmap.status === "fulfilled" ? heatmap.value : [];
   const stocksData = stocks.status === "fulfilled" ? stocks.value : [];
+  const topSignalsData: TopSignalItem[] = topSignals.status === "fulfilled" ? topSignals.value : [];
 
   return (
     <>
@@ -135,12 +139,131 @@ async function DashboardContent() {
             <StocksList stocks={stocksData} />
           </section>
         )}
+
+        {/* Top Signals */}
+        <section className="bg-card border border-border rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Zap size={13} className="text-[#FFD600]" />
+              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Top Quant Signals
+              </h2>
+            </div>
+            <Link href="/stocks" className="text-xs text-primary hover:underline">
+              View all stocks →
+            </Link>
+          </div>
+          <TopSignalsList items={topSignalsData} />
+        </section>
       </main>
     </>
   );
 }
 
+function TopSignalsList({ items }: { items: TopSignalItem[] }) {
+  if (!items.length) {
+    return (
+      <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+        No signals computed yet. Hit{" "}
+        <code className="bg-muted px-1 py-0.5 rounded text-xs">GET /admin/quant-now</code> to
+        trigger computation.
+      </div>
+    );
+  }
+
+  return (
+    <div className="divide-y divide-border/50">
+      {items.map((item, i) => {
+        const qs = item.quantScore ?? 0;
+        const qsColor =
+          qs >= 70 ? "text-[#00E676]" : qs >= 40 ? "text-[#FFD600]" : "text-[#FF1744]";
+        const signalCfg =
+          item.signal === "BUY"
+            ? { bg: "bg-[#00E676]/10", text: "text-[#00E676]", border: "border-[#00E676]/20", icon: TrendingUp }
+            : item.signal === "SELL"
+            ? { bg: "bg-[#FF1744]/10", text: "text-[#FF1744]", border: "border-[#FF1744]/20", icon: TrendingDown }
+            : { bg: "bg-[#FFD600]/10", text: "text-[#FFD600]", border: "border-[#FFD600]/20", icon: ArrowUpRight };
+        const Icon = signalCfg.icon;
+        const mom = item.momentum20 ? parseFloat(item.momentum20) : null;
+        const rsi = item.rsi14 ? parseFloat(item.rsi14) : null;
+
+        return (
+          <Link
+            key={item.ticker}
+            href={`/stocks/${encodeURIComponent(item.ticker)}`}
+            className="flex items-center gap-3 px-4 py-3 hover:bg-accent/30 transition-colors group"
+          >
+            {/* Rank */}
+            <span className="text-xs text-muted-foreground/50 w-4 shrink-0 font-mono">{i + 1}</span>
+
+            {/* Score ring */}
+            <div
+              className={`text-xl font-black tabular-nums w-8 shrink-0 ${qsColor}`}
+              title="QuantScore"
+            >
+              {qs}
+            </div>
+
+            {/* Ticker + name */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono font-bold text-primary">
+                  {item.ticker.replace(".LG", "")}
+                </span>
+                <span
+                  className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold border ${signalCfg.bg} ${signalCfg.text} ${signalCfg.border}`}
+                >
+                  <Icon size={9} />
+                  {item.signal}
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+                {item.name} · {item.sector}
+              </p>
+            </div>
+
+            {/* Mini stats */}
+            <div className="hidden sm:flex flex-col items-end gap-0.5 shrink-0">
+              {rsi !== null && (
+                <span className="text-[10px] text-muted-foreground">
+                  RSI{" "}
+                  <span
+                    className={
+                      rsi > 70
+                        ? "text-[#FF1744] font-semibold"
+                        : rsi < 30
+                        ? "text-[#00E676] font-semibold"
+                        : "text-foreground/80"
+                    }
+                  >
+                    {rsi.toFixed(1)}
+                  </span>
+                </span>
+              )}
+              {mom !== null && (
+                <span className="text-[10px] text-muted-foreground">
+                  20d{" "}
+                  <span className={mom >= 0 ? "text-[#00E676] font-semibold" : "text-[#FF1744] font-semibold"}>
+                    {mom >= 0 ? "+" : ""}
+                    {(mom * 100).toFixed(1)}%
+                  </span>
+                </span>
+              )}
+            </div>
+
+            <ArrowUpRight
+              size={14}
+              className="shrink-0 text-muted-foreground/40 group-hover:text-primary transition-colors"
+            />
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
 function StocksList({ stocks }: { stocks: Stock[] }) {
+
   return (
     <>
       {/* Mobile: card grid */}
