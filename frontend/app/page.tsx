@@ -4,6 +4,7 @@ import Navbar from "@/components/Navbar";
 import SectorHeatmap from "@/components/SectorHeatmap";
 import AlertFeed from "@/components/AlertFeed";
 import DetectNowButton from "@/components/DetectNowButton";
+import QuantNowButton from "@/components/QuantNowButton";
 import Link from "next/link";
 import {
   Activity,
@@ -149,9 +150,12 @@ async function DashboardContent() {
                 Top Quant Signals
               </h2>
             </div>
-            <Link href="/stocks" className="text-xs text-primary hover:underline">
-              View all stocks →
-            </Link>
+            <div className="flex items-center gap-2">
+              <QuantNowButton />
+              <Link href="/stocks" className="text-xs text-primary hover:underline">
+                View all stocks →
+              </Link>
+            </div>
           </div>
           <TopSignalsList items={topSignalsData} />
         </section>
@@ -164,9 +168,11 @@ function TopSignalsList({ items }: { items: TopSignalItem[] }) {
   if (!items.length) {
     return (
       <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-        No signals computed yet. Hit{" "}
-        <code className="bg-muted px-1 py-0.5 rounded text-xs">GET /admin/quant-now</code> to
-        trigger computation.
+        No signals computed yet.{" "}
+        <span className="text-foreground/70">
+          Click <span className="text-[#FFD600] font-semibold">Compute Signals</span> above to
+          run the quantitative analysis pipeline.
+        </span>
       </div>
     );
   }
