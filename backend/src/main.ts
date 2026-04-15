@@ -6,7 +6,19 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.setGlobalPrefix('api');
-  app.enableCors();
+
+  // CORS: allow the frontend origin (set ALLOWED_ORIGIN in Heroku config vars)
+  // Falls back to localhost for local dev
+  const allowedOrigins = (
+    process.env.ALLOWED_ORIGIN ?? 'http://localhost:3000'
+  ).split(',').map((o) => o.trim());
+
+  app.enableCors({
+    origin: allowedOrigins,
+    methods: ['GET', 'HEAD', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Accept', 'Authorization'],
+    credentials: false,
+  });
 
   const config = new DocumentBuilder()
     .setTitle('NGX Radar API')
@@ -59,7 +71,10 @@ async function bootstrap() {
     .setContact('NGX Radar', '', '')
     .setLicense('Private — All rights reserved', '')
     .addServer(`http://localhost:${process.env.PORT ?? 3001}`, 'Local Development')
-    .addServer('https://ngx-radar-backend.herokuapp.com', 'Production (Heroku)')
+    .addServer(
+      process.env.PUBLIC_URL ?? 'https://ngx-radar.herokuapp.com',
+      'Production (Heroku)',
+    )
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
