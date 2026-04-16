@@ -1,6 +1,9 @@
+"use client";
+
 import type { TechnicalSignals } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { TrendingUp, TrendingDown, Minus, Activity } from "lucide-react";
+import QuantNowButton from "@/components/QuantNowButton";
 
 interface QuantScoreCardProps {
   signals: TechnicalSignals | null;
@@ -122,14 +125,15 @@ function IndicatorPill({ label, value, sub }: { label: string; value: string; su
 export default function QuantScoreCard({ signals }: QuantScoreCardProps) {
   if (!signals || signals.quantScore === null) {
     return (
-      <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+      <div className="flex flex-col items-center justify-center py-8 text-center gap-3">
         <Activity size={28} className="text-muted-foreground/40" />
-        <p className="text-sm font-medium text-muted-foreground">Signals not computed yet</p>
-        <p className="text-xs text-muted-foreground/60">
-          Need ≥27 price snapshots. Hit{" "}
-          <code className="bg-muted px-1 py-0.5 rounded text-[10px]">GET /admin/quant-now</code>{" "}
-          to compute manually.
-        </p>
+        <div>
+          <p className="text-sm font-medium text-muted-foreground">Signals not computed yet</p>
+          <p className="text-xs text-muted-foreground/60 mt-1">
+            Need ≥27 price snapshots to compute indicators.
+          </p>
+        </div>
+        <QuantNowButton />
       </div>
     );
   }
