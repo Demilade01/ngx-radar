@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { api } from "@/lib/api";
 import Navbar from "@/components/Navbar";
 import ConvictionBadge from "@/components/ConvictionBadge";
+import DetectNowButton from "@/components/DetectNowButton";
 import Link from "next/link";
 import { ArrowUpRight, Filter, Loader2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
@@ -206,13 +207,16 @@ async function AlertsContent({ tier, sector, page }: { tier: string; sector: str
         <FilterBar tier={tier} sector={sector} />
 
         {alerts.length === 0 ? (
-          <div className="bg-card border border-border rounded-xl p-10 sm:p-12 text-center">
+          <div className="bg-card border border-border rounded-xl p-10 sm:p-12 text-center space-y-3">
             <p className="text-muted-foreground text-sm">
               No alerts found for the selected filters.
             </p>
-            <p className="text-muted-foreground/60 text-xs mt-1">
-              The intelligence cron runs hourly. Hit <strong>Detect Now</strong> on the dashboard to trigger it manually.
+            <p className="text-muted-foreground/60 text-xs">
+              The intelligence cron runs hourly. Trigger it now:
             </p>
+            <div className="flex justify-center">
+              <DetectNowButton />
+            </div>
           </div>
         ) : (
           <>
