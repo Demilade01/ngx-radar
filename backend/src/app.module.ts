@@ -6,6 +6,7 @@ import { ScraperModule } from './scraper/scraper.module';
 import { IntelligenceModule } from './intelligence/intelligence.module';
 import { AlertsModule } from './alerts/alerts.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
+import { TelegramWebhookModule } from './telegram/telegram-webhook.module';
 import { StocksService } from './stocks/stocks.service';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -22,6 +23,7 @@ import { QuantService } from './intelligence/quant.service';
     IntelligenceModule,
     AlertsModule,
     SchedulerModule,
+    TelegramWebhookModule,
   ],
   controllers: [AppController],
   providers: [AppService, AnomalyService, TelegramService, QuantService],
