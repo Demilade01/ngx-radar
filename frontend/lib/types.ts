@@ -10,6 +10,10 @@ export interface Stock {
   pbRatio: string | null;
 }
 
+export interface StockWithPrice extends Stock {
+  currentPrice: number | null;
+}
+
 export interface PriceSnapshot {
   id: number;
   stockId: number;
@@ -103,4 +107,17 @@ export interface AllSignalItem {
   ticker: string;
   quantScore: number | null;
   signal: string | null;
+}
+
+export interface OpportunityItem {
+  ticker: string;
+  name: string;
+  sector: string;
+  currentPrice: number;
+  volumeSpikeScore: number;
+  sentimentLabel: string;
+  grahamScore: number | null;
+  distanceFrom52wHigh: number | null;
+  has52wHistory: boolean;
+  convictionTier: string;
 }

@@ -53,3 +53,48 @@ export class FetchNowResponseDto {
   @ApiProperty({ example: 'Price fetch triggered manually' })
   message: string;
 }
+
+export class StockWithPriceDto extends StockDto {
+  @ApiPropertyOptional({
+    example: 452.0,
+    description: 'Most recent price snapshot in NGN (₦). Null if no snapshots exist yet.',
+  })
+  currentPrice: number | null;
+}
+
+export class OpportunityItemDto {
+  @ApiProperty({ example: 'GTCO.LG', description: 'Yahoo Finance ticker symbol' })
+  ticker: string;
+
+  @ApiProperty({ example: 'Guaranty Trust Holding Company' })
+  name: string;
+
+  @ApiProperty({ example: 'Banking' })
+  sector: string;
+
+  @ApiProperty({ example: 45.2, description: 'Most recent price in NGN (₦)' })
+  currentPrice: number;
+
+  @ApiProperty({ example: 3.4, description: 'Volume spike z-score (> 2.0 to qualify)' })
+  volumeSpikeScore: number;
+
+  @ApiProperty({ example: 'positive', enum: ['positive', 'neutral'] })
+  sentimentLabel: string;
+
+  @ApiPropertyOptional({ example: 6, description: 'Graham quality score 0–7' })
+  grahamScore: number | null;
+
+  @ApiPropertyOptional({
+    example: 28.4,
+    description:
+      '% below tracking-period high. Null when no price history exists. ' +
+      'Labelled "since tracking" when history is < 365 days.',
+  })
+  distanceFrom52wHigh: number | null;
+
+  @ApiProperty({ example: false, description: 'True when price history covers a full 365 days' })
+  has52wHistory: boolean;
+
+  @ApiProperty({ example: 'HIGH', enum: ['HIGH', 'MEDIUM', 'SPECULATIVE', 'DISTRIBUTION'] })
+  convictionTier: string;
+}

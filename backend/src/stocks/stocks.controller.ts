@@ -1,16 +1,33 @@
-import { Controller, Get, Param, NotFoundException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  Query,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiParam,
   ApiOkResponse,
   ApiNotFoundResponse,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { StocksService } from './stocks.service';
 import { YahooService } from '../scraper/yahoo.service';
 import { QuantService } from '../intelligence/quant.service';
-import { StockDto, PriceSnapshotDto, FetchNowResponseDto } from './dto/stock.dto';
+import {
+  StockDto,
+  StockWithPriceDto,
+  PriceSnapshotDto,
+  FetchNowResponseDto,
+  OpportunityItemDto,
+} from './dto/stock.dto';
 import { NewsItemWithSentimentDto } from '../alerts/dto/alert.dto';
+
+const VALID_RANGES = ['cheap', 'mid', 'premium'] as const;
+type PriceRange = (typeof VALID_RANGES)[number];
 
 @ApiTags('Stocks')
 @Controller('stocks')
@@ -24,11 +41,57 @@ export class StocksController {
   @Get()
   @ApiOperation({
     summary: 'List all tracked NGX stocks',
-    description: 'Returns all monitored NGX stocks with their latest fundamental data and Graham quality scores.',
+    description:
+      'Returns all monitored NGX stocks with their latest fundamental data and Graham quality scores. ' +
+      'Pass price filter params to narrow results — responses will include `currentPrice` when any filter is active.',
   })
-  @ApiOkResponse({ type: [StockDto] })
-  findAll() {
-    return this.stocksService.findAll();
+  @ApiQuery({ name: 'minPrice', required: false, type: Number, description: 'Minimum price in ₦' })
+  @ApiQuery({ name: 'maxPrice', required: false, type: Number, description: 'Maximum price in ₦' })
+  @ApiQuery({
+    name: 'priceRange',
+    required: false,
+    enum: ['cheap', 'mid', 'premium'],
+    description: '`cheap` = under ₦50 | `mid` = ₦50–₦500 | `premium` = above ₦500. Takes precedence over minPrice/maxPrice.',
+  })
+  @ApiOkResponse({ type: [StockWithPriceDto] })
+  findAll(
+    @Query('minPrice') minPrice?: string,
+    @Query('maxPrice') maxPrice?: string,
+    @Query('priceRange') priceRange?: string,
+  ) {
+    const hasFilter = minPrice || maxPrice || priceRange;
+
+    if (!hasFilter) {
+      return this.stocksService.findAll();
+    }
+
+    if (priceRange && !VALID_RANGES.includes(priceRange as PriceRange)) {
+      throw new BadRequestException(
+        `Invalid priceRange. Must be one of: ${VALID_RANGES.join(', ')}`,
+      );
+    }
+
+    return this.stocksService.findAllWithPrices({
+      minPrice: minPrice ? parseFloat(minPrice) : undefined,
+      maxPrice: maxPrice ? parseFloat(maxPrice) : undefined,
+      priceRange: priceRange as PriceRange | undefined,
+    });
+  }
+
+  // NOTE: 'opportunities' and 'fetch-now' must be declared BEFORE ':ticker'
+  // so NestJS does not match them as ticker params.
+
+  @Get('opportunities')
+  @ApiOperation({
+    summary: '"Where the money will move" — low-price high-volume stocks',
+    description:
+      'Returns stocks that meet all three criteria: **price < ₦100**, **volume spike z-score > 2.0**, and **neutral or positive sentiment**. ' +
+      'Results are sorted by volume spike score descending. Each item includes `distanceFrom52wHigh` (% below tracking-period peak) and `has52wHistory` ' +
+      '(true only when price history spans ≥ 365 days — otherwise the label "since tracking" should be shown in the UI).',
+  })
+  @ApiOkResponse({ type: [OpportunityItemDto] })
+  getOpportunities() {
+    return this.stocksService.getOpportunities();
   }
 
   @Get('fetch-now')

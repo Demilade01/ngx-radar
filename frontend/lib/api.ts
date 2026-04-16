@@ -1,5 +1,6 @@
 import type {
   Stock,
+  StockWithPrice,
   PriceSnapshot,
   AlertFeedItem,
   SectorHeatmapItem,
@@ -8,6 +9,7 @@ import type {
   TechnicalSignals,
   TopSignalItem,
   AllSignalItem,
+  OpportunityItem,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
@@ -35,6 +37,14 @@ export const api = {
   getStatus: () => get<StatusResponse>("/api"),
 
   getStocks: () => get<Stock[]>("/api/stocks"),
+
+  getStocksFiltered: (params?: {
+    minPrice?: number;
+    maxPrice?: number;
+    priceRange?: "cheap" | "mid" | "premium";
+  }) => get<StockWithPrice[]>(`/api/stocks${qs(params)}`),
+
+  getOpportunities: () => get<OpportunityItem[]>("/api/stocks/opportunities"),
 
   getStock: (ticker: string) => get<Stock>(`/api/stocks/${encodeURIComponent(ticker)}`),
 
@@ -67,3 +77,4 @@ export const api = {
 
   getAllSignals: () => get<AllSignalItem[]>("/api/quant/all-signals"),
 };
+
