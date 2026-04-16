@@ -8,7 +8,7 @@ import * as schema from '../database/schema';
 import { count, gte } from 'drizzle-orm';
 
 // ─────────────────────────────────────────────
-//  Telegram Update shape (minimal subset)
+//  Telegram Update shapes
 // ─────────────────────────────────────────────
 
 interface TelegramMessage {
@@ -16,9 +16,38 @@ interface TelegramMessage {
   text?: string;
 }
 
+interface TelegramCallbackQuery {
+  id: string;
+  from: { id: number };
+  message?: { chat: { id: number } };
+  data?: string;
+}
+
 interface TelegramUpdate {
   message?: TelegramMessage;
+  callback_query?: TelegramCallbackQuery;
 }
+
+// Inline keyboard types
+type InlineButton = { text: string; callback_data: string };
+type InlineKeyboard = { inline_keyboard: InlineButton[][] };
+
+// ─────────────────────────────────────────────
+//  Helpers
+// ─────────────────────────────────────────────
+
+const SECTOR_EMOJI: Record<string, string> = {
+  Banking: '🏦',
+  Telecom: '📡',
+  'Consumer Goods': '🛒',
+  'Oil & Gas': '⛽',
+  Cement: '🏗️',
+  Agriculture: '🌾',
+  Insurance: '🛡️',
+  Healthcare: '🏥',
+  Industrial: '⚙️',
+  Other: '📦',
+};
 
 // ─────────────────────────────────────────────
 //  Service
@@ -37,21 +66,15 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
     @Inject(DB) private readonly db: NeonHttpDatabase<typeof schema>,
   ) {}
 
-  // ─── Startup: register webhook with Telegram ────────────────────────────────
+  // ─── Startup ─────────────────────────────────────────────────────────────────
 
   async onApplicationBootstrap() {
     const herokuUrl = process.env.HEROKU_URL;
 
-    if (!herokuUrl) {
+    if (!herokuUrl || !this.token) {
       this.logger.warn(
-        '[TELEGRAM WEBHOOK] HEROKU_URL not set — skipping webhook registration. ' +
-        'Set HEROKU_URL=https://your-app.herokuapp.com to enable interactive bot commands.',
+        '[TELEGRAM WEBHOOK] HEROKU_URL or TELEGRAM_BOT_TOKEN not set — skipping webhook registration.',
       );
-      return;
-    }
-
-    if (!this.token) {
-      this.logger.warn('[TELEGRAM WEBHOOK] TELEGRAM_BOT_TOKEN not set — skipping registration.');
       return;
     }
 
@@ -74,10 +97,18 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
     }
   }
 
-  // ─── Dispatcher ─────────────────────────────────────────────────────────────
+  // ─── Dispatcher ──────────────────────────────────────────────────────────────
 
   async handleUpdate(body: Record<string, unknown>): Promise<void> {
     const update = body as TelegramUpdate;
+
+    // Inline button tap
+    if (update.callback_query) {
+      await this.handleCallbackQuery(update.callback_query);
+      return;
+    }
+
+    // Regular message
     const message = update.message;
     if (!message?.text || !message.chat?.id) return;
 
@@ -94,7 +125,7 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
       await this.handleAlerts(chatId);
     } else if (text.startsWith('/stock')) {
       const parts = text.split(/\s+/);
-      const ticker = parts[1]?.toUpperCase();
+      const ticker = parts[1]; // undefined if no arg given
       await this.handleStock(chatId, ticker);
     } else if (text === '/market') {
       await this.handleMarket(chatId);
@@ -103,7 +134,26 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
     }
   }
 
-  // ─── Command handlers ────────────────────────────────────────────────────────
+  // ─── Callback query (button taps) ────────────────────────────────────────────
+
+  private async handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> {
+    const chatId = query.message?.chat?.id;
+    if (!chatId) return;
+
+    // Always dismiss Telegram's loading spinner
+    await this.answerCallbackQuery(query.id);
+
+    const data = query.data ?? '';
+
+    if (data.startsWith('stock:')) {
+      const ticker = data.replace('stock:', '');
+      // ticker here is already in TICKER.LG format — strip suffix for handleStock
+      await this.handleStock(chatId, ticker.replace('.LG', ''));
+    }
+    // 'noop' callbacks (sector header buttons) are silently ignored
+  }
+
+  // ─── Command: /start ─────────────────────────────────────────────────────────
 
   private async handleStart(chatId: number): Promise<void> {
     await this.sendReply(
@@ -113,22 +163,27 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
       `<b>Available commands:</b>\n\n` +
       `/top — Top 5 quant signals right now\n` +
       `/alerts — Latest 5 anomaly alerts\n` +
-      `/stock [TICKER] — Single stock summary (e.g. <code>/stock GTCO</code>)\n` +
+      `/stock [TICKER] — Stock summary (tap to browse or type a name)\n` +
       `/market — Market open/closed + today's stats`,
     );
   }
+
+  // ─── Command: /top ───────────────────────────────────────────────────────────
 
   private async handleTop(chatId: number): Promise<void> {
     try {
       const signals = await this.quantService.getTopSignals(5);
 
       if (!signals.length) {
-        await this.sendReply(chatId, '📊 <b>Top Signals</b>\n\nNo quant signals computed yet. Run <code>/api/admin/quant-now</code> to trigger computation.');
+        await this.sendReply(
+          chatId,
+          '📊 <b>Top Signals</b>\n\nNo quant signals computed yet.',
+        );
         return;
       }
 
       const lines = signals.map((s, i) => {
-        const score = s.quantScore !== null ? s.quantScore : '—';
+        const score = s.quantScore ?? '—';
         const sig = s.signal ?? '—';
         const rsi = s.rsi14 ? parseFloat(s.rsi14).toFixed(1) : '—';
         const mom = s.momentum20
@@ -143,9 +198,11 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
 
       await this.sendReply(chatId, `📊 <b>Top 5 Quant Signals</b>\n\n${lines.join('\n\n')}`);
     } catch (err) {
-      await this.sendReply(chatId, `⚠️ Could not fetch quant signals: ${(err as Error).message}`);
+      await this.sendReply(chatId, `⚠️ Could not fetch signals: ${(err as Error).message}`);
     }
   }
+
+  // ─── Command: /alerts ────────────────────────────────────────────────────────
 
   private async handleAlerts(chatId: number): Promise<void> {
     try {
@@ -185,31 +242,48 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
     }
   }
 
-  private async handleStock(chatId: number, ticker?: string): Promise<void> {
-    if (!ticker) {
-      await this.sendReply(
-        chatId,
-        '❌ Please provide a ticker symbol.\nExample: <code>/stock GTCO</code>',
-      );
+  // ─── Command: /stock ─────────────────────────────────────────────────────────
+
+  private async handleStock(chatId: number, rawTicker?: string): Promise<void> {
+    // No ticker → show interactive picker
+    if (!rawTicker) {
+      await this.showStockPicker(chatId);
       return;
     }
 
-    // Accept bare ticker (GTCO) or Yahoo format (GTCO.LG)
-    const normalized = ticker.includes('.') ? ticker.toUpperCase() : `${ticker.toUpperCase()}.LG`;
-
     try {
-      const [stock, signals] = await Promise.all([
-        this.stocksService.findByTicker(normalized),
-        this.quantService.getSignalsForTicker(normalized),
-      ]);
+      // 1. Exact ticker match (accepts "GTCO" or "GTCO.LG")
+      const normalized = rawTicker.includes('.')
+        ? rawTicker.toUpperCase()
+        : `${rawTicker.toUpperCase()}.LG`;
+
+      const exactMatch = await this.stocksService.findByTicker(normalized);
+
+      // 2. Fuzzy fallback — match against ticker or company name
+      const allStocks = exactMatch ? [] : await this.stocksService.findAll();
+      const q = rawTicker.toLowerCase();
+      const fuzzyMatch = exactMatch
+        ? null
+        : (allStocks.find(
+            (s) =>
+              s.ticker.toLowerCase().replace('.lg', '').includes(q) ||
+              s.name.toLowerCase().includes(q),
+          ) ?? null);
+
+      const stock = exactMatch ?? fuzzyMatch;
 
       if (!stock) {
-        await this.sendReply(chatId, `❌ Stock <code>${ticker}</code> not found. Use the NGX ticker, e.g. GTCO, DANGCEM, MTNN.`);
+        await this.sendReply(
+          chatId,
+          `❌ No stock found for "<code>${rawTicker}</code>".\n\nTry /stock to browse all stocks, or search by company name (e.g. <code>/stock zenith</code>).`,
+        );
         return;
       }
 
+      const signals = await this.quantService.getSignalsForTicker(stock.ticker);
+
       const graham = stock.grahamScore !== null ? `${stock.grahamScore}/7` : '—';
-      const score = signals?.quantScore !== null ? signals?.quantScore ?? '—' : '—';
+      const score = signals?.quantScore ?? '—';
       const signal = signals?.signal ?? '—';
       const rsi = signals?.rsi14 ? parseFloat(signals.rsi14).toFixed(1) : '—';
       const mom = signals?.momentum20
@@ -228,9 +302,54 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
         `<b>Momentum (20d):</b> ${mom}`,
       );
     } catch (err) {
-      await this.sendReply(chatId, `⚠️ Could not fetch stock data: ${(err as Error).message}`);
+      await this.sendReply(chatId, `⚠️ Could not fetch stock: ${(err as Error).message}`);
     }
   }
+
+  /** Show an inline keyboard grouped by sector so users can tap instead of type. */
+  private async showStockPicker(chatId: number): Promise<void> {
+    try {
+      const stocks = await this.stocksService.findAll();
+
+      // Group by sector, preserve insertion order
+      const grouped = new Map<string, typeof stocks>();
+      for (const stock of stocks) {
+        if (!grouped.has(stock.sector)) grouped.set(stock.sector, []);
+        grouped.get(stock.sector)!.push(stock);
+      }
+
+      const keyboard: InlineButton[][] = [];
+
+      for (const [sector, sectorStocks] of grouped.entries()) {
+        // Sector header — non-functional button used as a visual label
+        keyboard.push([
+          {
+            text: `${SECTOR_EMOJI[sector] ?? '📊'} ${sector}`,
+            callback_data: 'noop',
+          },
+        ]);
+
+        // Stock buttons, 3 per row
+        for (let i = 0; i < sectorStocks.length; i += 3) {
+          const row = sectorStocks.slice(i, i + 3).map((s) => ({
+            text: s.ticker.replace('.LG', ''),
+            callback_data: `stock:${s.ticker}`,
+          }));
+          keyboard.push(row);
+        }
+      }
+
+      await this.sendReply(
+        chatId,
+        `📈 <b>Select a stock</b>\n\nOr type <code>/stock &lt;name&gt;</code> to search — e.g. <code>/stock zenith</code>`,
+        { inline_keyboard: keyboard },
+      );
+    } catch (err) {
+      await this.sendReply(chatId, `⚠️ Could not load stock list: ${(err as Error).message}`);
+    }
+  }
+
+  // ─── Command: /market ────────────────────────────────────────────────────────
 
   private async handleMarket(chatId: number): Promise<void> {
     try {
@@ -246,8 +365,14 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
 
       const [stockCount, alertCount, snapshotCount] = await Promise.all([
         this.db.select({ value: count() }).from(schema.stocks),
-        this.db.select({ value: count() }).from(schema.anomalyEvents).where(gte(schema.anomalyEvents.createdAt, todayStart)),
-        this.db.select({ value: count() }).from(schema.priceSnapshots).where(gte(schema.priceSnapshots.timestamp, todayStart)),
+        this.db
+          .select({ value: count() })
+          .from(schema.anomalyEvents)
+          .where(gte(schema.anomalyEvents.createdAt, todayStart)),
+        this.db
+          .select({ value: count() })
+          .from(schema.priceSnapshots)
+          .where(gte(schema.priceSnapshots.timestamp, todayStart)),
       ]);
 
       const statusIcon = marketOpen ? '✅ OPEN' : '🔴 CLOSED';
@@ -266,6 +391,8 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
     }
   }
 
+  // ─── Command: unknown ────────────────────────────────────────────────────────
+
   private async handleUnknown(chatId: number): Promise<void> {
     await this.sendReply(
       chatId,
@@ -273,30 +400,56 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
       `Here's what I can do:\n\n` +
       `/top — Top 5 quant signals right now\n` +
       `/alerts — Latest 5 anomaly alerts\n` +
-      `/stock [TICKER] — Single stock summary (e.g. <code>/stock GTCO</code>)\n` +
+      `/stock — Browse all stocks (tap to select)\n` +
+      `/stock [name] — Search by ticker or name\n` +
       `/market — Market open/closed + today's stats`,
     );
   }
 
-  // ─── Sender ──────────────────────────────────────────────────────────────────
+  // ─── API helpers ─────────────────────────────────────────────────────────────
 
-  async sendReply(chatId: number, text: string): Promise<void> {
+  /** Dismiss Telegram's loading spinner after a button tap. */
+  private async answerCallbackQuery(callbackQueryId: string): Promise<void> {
+    try {
+      await fetch(`${this.apiBase}/answerCallbackQuery`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callback_query_id: callbackQueryId }),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch {
+      // Non-critical — just swallow
+    }
+  }
+
+  async sendReply(
+    chatId: number,
+    text: string,
+    replyMarkup?: InlineKeyboard,
+  ): Promise<void> {
     if (!this.token) {
       this.logger.warn('[TELEGRAM BOT] Token not set — skipping reply');
       return;
     }
 
     try {
+      const body: Record<string, unknown> = {
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+      };
+      if (replyMarkup) body.reply_markup = replyMarkup;
+
       const res = await fetch(`${this.apiBase}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+        body: JSON.stringify(body),
         signal: AbortSignal.timeout(10000),
       });
 
       if (!res.ok) {
-        const body = await res.text();
-        this.logger.error(`[TELEGRAM BOT] sendMessage failed (${res.status}): ${body}`);
+        const resBody = await res.text();
+        this.logger.error(`[TELEGRAM BOT] sendMessage failed (${res.status}): ${resBody}`);
       }
     } catch (err) {
       this.logger.error(`[TELEGRAM BOT] Network error: ${(err as Error).message}`);
