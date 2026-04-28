@@ -59,12 +59,20 @@ export class SchedulerService {
     this.logger.log(`[CRON] detect-anomalies complete — ${results.length} events`);
   }
 
-  // Every Monday 8am WAT — refresh Graham scores
-  @Cron('0 8 * * 1', { timeZone: 'Africa/Lagos' })
-  async updateGrahamScores() {
-    this.logger.log(`[CRON] update-graham fired at ${new Date().toISOString()}`);
+  // After market close (3pm WAT, Mon–Fri) — refresh Graham scores
+  @Cron('0 15 * * 1-5', { timeZone: 'Africa/Lagos' })
+  async updateGrahamScoresPostMarket() {
+    this.logger.log(`[CRON] update-graham (post-market) fired at ${new Date().toISOString()}`);
     await this.grahamService.updateAllGrahamScores();
-    this.logger.log(`[CRON] update-graham complete`);
+    this.logger.log(`[CRON] update-graham (post-market) complete`);
+  }
+
+  // End of business day (5pm WAT, Mon–Fri) — refresh Graham scores again
+  @Cron('0 17 * * 1-5', { timeZone: 'Africa/Lagos' })
+  async updateGrahamScoresEndOfDay() {
+    this.logger.log(`[CRON] update-graham (EOD) fired at ${new Date().toISOString()}`);
+    await this.grahamService.updateAllGrahamScores();
+    this.logger.log(`[CRON] update-graham (EOD) complete`);
   }
 
   // 9am WAT, Mon–Fri morning digest

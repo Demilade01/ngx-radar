@@ -6,6 +6,7 @@ import { NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import { DB } from '../database/database.module';
 import * as schema from '../database/schema';
 import { count, gte } from 'drizzle-orm';
+import Groq from 'groq-sdk';
 
 // ─────────────────────────────────────────────
 //  Telegram Update shapes
@@ -58,6 +59,7 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
   private readonly logger = new Logger(TelegramWebhookService.name);
   private readonly token = process.env.TELEGRAM_BOT_TOKEN!;
   private readonly apiBase = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
+  private readonly groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
   constructor(
     private readonly alertsService: AlertsService,
@@ -130,7 +132,7 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
     } else if (text === '/market') {
       await this.handleMarket(chatId);
     } else {
-      await this.handleUnknown(chatId);
+      await this.handleChat(chatId, text);
     }
   }
 
@@ -159,12 +161,17 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
     await this.sendReply(
       chatId,
       `🤖 <b>NGX Radar Bot</b>\n\n` +
-      `Track smart money on the Nigerian Stock Exchange.\n\n` +
+      `Track smart money on the Nigerian Stock Exchange with AI-powered Graham value investing insights.\n\n` +
       `<b>Available commands:</b>\n\n` +
       `/top — Top 5 quant signals right now\n` +
       `/alerts — Latest 5 anomaly alerts\n` +
       `/stock [TICKER] — Stock summary (tap to browse or type a name)\n` +
-      `/market — Market open/closed + today's stats`,
+      `/market — Market open/closed + today's stats\n\n` +
+      `<b>💡 Graham Advisor:</b> Just ask any question!\n` +
+      `• "What should I buy now?"\n` +
+      `• "Which stocks are undervalued?"\n` +
+      `• "Show me high Graham score stocks"\n` +
+      `• "What's a good long-term investment?"`,
     );
   }
 
@@ -393,17 +400,69 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
 
   // ─── Command: unknown ────────────────────────────────────────────────────────
 
-  private async handleUnknown(chatId: number): Promise<void> {
-    await this.sendReply(
-      chatId,
-      `❓ <b>Unknown command</b>\n\n` +
-      `Here's what I can do:\n\n` +
-      `/top — Top 5 quant signals right now\n` +
-      `/alerts — Latest 5 anomaly alerts\n` +
-      `/stock — Browse all stocks (tap to select)\n` +
-      `/stock [name] — Search by ticker or name\n` +
-      `/market — Market open/closed + today's stats`,
-    );
+  private async handleChat(chatId: number, userMessage: string): Promise<void> {
+    try {
+      // Show typing indicator
+      await this.sendChatAction(chatId, 'typing');
+
+      // Get quality stocks for context
+      const stocks = await this.stocksService.findAll();
+      const qualityStocks = stocks
+        .filter((s) => s.grahamScore && s.grahamScore >= 4)
+        .sort((a, b) => (b.grahamScore ?? 0) - (a.grahamScore ?? 0))
+        .slice(0, 15)
+        .map((s) => {
+          const pe = s.peRatio ? parseFloat(s.peRatio).toFixed(1) : '—';
+          return `• <b>${s.ticker.replace('.LG', '')}</b> [Graham ${s.grahamScore}/7] P/E: ${pe}x`;
+        })
+        .join('\n');
+
+      const systemPrompt = `You are an Intelligent Investor advisor inspired by Benjamin Graham's principles of value investing.
+
+KEY PRINCIPLES:
+- Focus on fundamental value and margin of safety
+- Prefer stocks with strong Graham scores (≥5/7) and reasonable P/E ratios
+- Avoid overpaying for growth or hype
+- Long-term thinking over short-term trading
+- Risk management and diversification matter
+- Only invest in what you understand
+
+QUALITY NGX STOCKS AVAILABLE (Graham Score ≥4):
+${qualityStocks || 'No high-quality stocks currently available'}
+
+When users ask investment questions:
+1. Recommend based on Graham Score (fundamental strength)
+2. Compare price-to-earnings ratios
+3. Suggest sector diversification
+4. Acknowledge personal risk tolerance varies
+5. Always add a disclaimer that this is educational, not financial advice
+
+Be concise for Telegram (keep under 300 characters if possible). Be opinionated but acknowledge uncertainty. Use emojis:
+- 🟢 Buy/Strong fundamentals
+- 🟡 Hold/Medium quality
+- 🔴 Avoid/Weak fundamentals
+- 💡 Educational point
+- ⚠️ Risk/Caution`;
+
+      const completion = await this.groq.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        temperature: 0.7,
+        max_tokens: 400,
+      });
+
+      const reply = completion.choices[0]?.message?.content?.trim() ?? 'Unable to process your question.';
+      await this.sendReply(chatId, `💡 <b>Graham Advisor</b>\n\n${reply}`);
+    } catch (err) {
+      this.logger.error(`[TELEGRAM CHAT] Error: ${(err as Error).message}`);
+      await this.sendReply(
+        chatId,
+        `⚠️ <b>Error</b>\n\nUnable to process your question at the moment. Try again or use /help.`,
+      );
+    }
   }
 
   // ─── API helpers ─────────────────────────────────────────────────────────────
@@ -418,6 +477,21 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
         signal: AbortSignal.timeout(5000),
       });
     } catch {
+      // Non-critical — just swallow
+    }
+  }
+
+  private async sendChatAction(chatId: number, action: 'typing' | 'upload_photo' | 'upload_video'): Promise<void> {
+    if (!this.token) return;
+
+    try {
+      await fetch(`${this.apiBase}/sendChatAction`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, action }),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch (err) {
       // Non-critical — just swallow
     }
   }
