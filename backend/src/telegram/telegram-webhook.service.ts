@@ -510,13 +510,10 @@ ALWAYS:
 
       const reply = completion.choices[0]?.message?.content?.trim() ?? 'Unable to process your question.';
 
-      // Sanitize Unicode characters that break Telegram HTML parsing
+      // Sanitize Unicode characters that break Telegram parsing
       const sanitizedReply = reply
         .replace(/[\u202F‟×÷–—]/g, ' ')  // Replace problematic Unicode with space
         .substring(0, 4000);  // Telegram 4096 char limit
-
-      // Convert Markdown formatting to HTML
-      const htmlReply = this.markdownToHtml(sanitizedReply);
 
       // Store in conversation history (keep last 12 messages for context window)
       history.push({ role: 'user', content: userMessage });
@@ -526,7 +523,7 @@ ALWAYS:
       }
       this.conversationHistory.set(chatId, history);
 
-      await this.sendReply(chatId, `💡 <b>Graham Advisor</b>\n\n${htmlReply}`);
+      await this.sendReplyMarkdown(chatId, `💡 *Graham Advisor*\n\n${sanitizedReply}`);
     } catch (err) {
       this.logger.error(`[TELEGRAM CHAT] Error: ${(err as Error).message}`);
       await this.sendReply(
@@ -537,14 +534,6 @@ ALWAYS:
   }
 
   // ─── Image Analysis ────────────────────────────────────────────────────────────
-
-  private markdownToHtml(text: string): string {
-    return text
-      .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>') // **bold** → <b>bold</b>
-      .replace(/\*(.*?)\*/g, '<b>$1</b>') // *italic* → <b>italic</b> (simplified)
-      .replace(/`(.*?)`/g, '<code>$1</code>') // `code` → <code>code</code>
-      .replace(/_(.*?)_/g, '<i>$1</i>'); // _italic_ → <i>italic</i>
-  }
 
   private async handleImageAnalysis(chatId: number, fileId: string, userQuestion: string): Promise<void> {
     try {
@@ -601,10 +590,7 @@ Always reference: Current price, P/E ratio, earnings quality, fundamentals, Grah
         .replace(/[\u202F‟×÷–—]/g, ' ')
         .substring(0, 4000);
 
-      // Convert Markdown formatting to HTML
-      const htmlReply = this.markdownToHtml(sanitizedReply);
-
-      await this.sendReply(chatId, `💡 <b>Image Analysis</b>\n\n${htmlReply}`);
+      await this.sendReplyMarkdown(chatId, `💡 *Image Analysis*\n\n${sanitizedReply}`);
     } catch (err) {
       this.logger.error(`[TELEGRAM IMAGE] Error: ${(err as Error).message}`);
       await this.sendReply(chatId, `⚠️ <b>Error</b>\n\nCould not analyze image. Try describing it with text instead.`);
@@ -683,6 +669,41 @@ Always reference: Current price, P/E ratio, earnings quality, fundamentals, Grah
         chat_id: chatId,
         text,
         parse_mode: 'HTML',
+      };
+      if (replyMarkup) body.reply_markup = replyMarkup;
+
+      const res = await fetch(`${this.apiBase}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!res.ok) {
+        const resBody = await res.text();
+        this.logger.error(`[TELEGRAM BOT] sendMessage failed (${res.status}): ${resBody}`);
+      }
+    } catch (err) {
+      this.logger.error(`[TELEGRAM BOT] Network error: ${(err as Error).message}`);
+    }
+  }
+
+  /** Send reply with Markdown formatting (for AI responses) */
+  private async sendReplyMarkdown(
+    chatId: number,
+    text: string,
+    replyMarkup?: InlineKeyboard,
+  ): Promise<void> {
+    if (!this.token) {
+      this.logger.warn('[TELEGRAM BOT] Token not set — skipping reply');
+      return;
+    }
+
+    try {
+      const body: Record<string, unknown> = {
+        chat_id: chatId,
+        text,
+        parse_mode: 'Markdown',
       };
       if (replyMarkup) body.reply_markup = replyMarkup;
 
