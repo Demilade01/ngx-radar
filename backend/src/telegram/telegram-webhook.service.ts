@@ -5,7 +5,7 @@ import { StocksService } from '../stocks/stocks.service';
 import { NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import { DB } from '../database/database.module';
 import * as schema from '../database/schema';
-import { count, gte } from 'drizzle-orm';
+import { count, gte, eq, desc } from 'drizzle-orm';
 import Groq from 'groq-sdk';
 
 // ─────────────────────────────────────────────
@@ -419,18 +419,31 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
       // Get conversation history for this chat
       let history = this.conversationHistory.get(chatId) || [];
 
-      // Get quality stocks for context
+      // Get quality stocks with REAL prices from database
       const stocks = await this.stocksService.findAll();
       const qualityStocks = stocks
         .filter((s) => s.grahamScore && s.grahamScore >= 4)
         .sort((a, b) => (b.grahamScore ?? 0) - (a.grahamScore ?? 0))
-        .slice(0, 10)
-        .map((s) => {
+        .slice(0, 10);
+
+      // Fetch latest prices for each stock
+      const stocksWithPrices = await Promise.all(
+        qualityStocks.map(async (s) => {
+          const prices = await this.db
+            .select()
+            .from(schema.priceSnapshots)
+            .where(eq(schema.priceSnapshots.stockId, s.id))
+            .orderBy(desc(schema.priceSnapshots.timestamp))
+            .limit(1);
+          const latestPrice = prices[0];
           const pe = s.peRatio ? parseFloat(s.peRatio).toFixed(1) : '—';
           const pb = s.pbRatio ? parseFloat(s.pbRatio).toFixed(2) : '—';
-          return `• ${s.ticker.replace('.LG', '')}: Graham ${s.grahamScore}/7, P/E ${pe}x, P/B ${pb}x`;
-        })
-        .join('\n');
+          const price = latestPrice?.price ? `₦${parseFloat(latestPrice.price).toFixed(2)}` : '?';
+          return `• ${s.ticker.replace('.LG', '')}: ${price} | Graham ${s.grahamScore}/7 | P/E ${pe}x | P/B ${pb}x`;
+        }),
+      );
+
+      const qualityStocksText = stocksWithPrices.join('\n');
 
       // Get today's market alerts for real-time context
       const todayAlerts = await this.alertsService.getRecentAlertsForDigest(1);
@@ -457,8 +470,8 @@ VALUE INVESTING PHILOSOPHY:
 - Diversify across sectors
 - Only invest in what you understand
 
-QUALITY NGX STOCKS (Graham Score ≥4):
-${qualityStocks || 'No high-quality stocks available'}
+QUALITY NGX STOCKS (Graham Score ≥4, with REAL-TIME PRICES):
+${qualityStocksText || 'No high-quality stocks available'}
 
 TODAY'S MARKET MOVES:
 ${marketMoves || 'Market quiet today'}
@@ -502,6 +515,9 @@ ALWAYS:
         .replace(/[\u202F‟×÷–—]/g, ' ')  // Replace problematic Unicode with space
         .substring(0, 4000);  // Telegram 4096 char limit
 
+      // Convert Markdown formatting to HTML
+      const htmlReply = this.markdownToHtml(sanitizedReply);
+
       // Store in conversation history (keep last 12 messages for context window)
       history.push({ role: 'user', content: userMessage });
       history.push({ role: 'assistant', content: reply });
@@ -510,17 +526,25 @@ ALWAYS:
       }
       this.conversationHistory.set(chatId, history);
 
-      await this.sendReply(chatId, `💡 *Graham Advisor*\n\n${sanitizedReply}`);
+      await this.sendReply(chatId, `💡 <b>Graham Advisor</b>\n\n${htmlReply}`);
     } catch (err) {
       this.logger.error(`[TELEGRAM CHAT] Error: ${(err as Error).message}`);
       await this.sendReply(
         chatId,
-        `⚠️ Error\n\nUnable to process your question at the moment. Try again or use /help.`,
+        `⚠️ <b>Error</b>\n\nUnable to process your question at the moment. Try again or use /help.`,
       );
     }
   }
 
   // ─── Image Analysis ────────────────────────────────────────────────────────────
+
+  private markdownToHtml(text: string): string {
+    return text
+      .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>') // **bold** → <b>bold</b>
+      .replace(/\*(.*?)\*/g, '<b>$1</b>') // *italic* → <b>italic</b> (simplified)
+      .replace(/`(.*?)`/g, '<code>$1</code>') // `code` → <code>code</code>
+      .replace(/_(.*?)_/g, '<i>$1</i>'); // _italic_ → <i>italic</i>
+  }
 
   private async handleImageAnalysis(chatId: number, fileId: string, userQuestion: string): Promise<void> {
     try {
@@ -529,24 +553,35 @@ ALWAYS:
       const stocks = await this.stocksService.findAll();
       const qualityStocks = stocks
         .filter((s) => s.grahamScore && s.grahamScore >= 4)
-        .slice(0, 10)
-        .map((s) => {
+        .slice(0, 10);
+
+      // Fetch latest prices for context
+      const stocksWithPrices = await Promise.all(
+        qualityStocks.map(async (s) => {
+          const prices = await this.db
+            .select()
+            .from(schema.priceSnapshots)
+            .where(eq(schema.priceSnapshots.stockId, s.id))
+            .orderBy(desc(schema.priceSnapshots.timestamp))
+            .limit(1);
+          const latestPrice = prices[0];
           const pe = s.peRatio ? parseFloat(s.peRatio).toFixed(1) : '—';
-          return `• ${s.ticker.replace('.LG', '')}: Graham ${s.grahamScore}/7, P/E ${pe}x`;
-        })
-        .join('\n');
+          const price = latestPrice?.price ? `₦${parseFloat(latestPrice.price).toFixed(2)}` : '?';
+          return `• ${s.ticker.replace('.LG', '')}: ${price} | Graham ${s.grahamScore}/7 | P/E ${pe}x`;
+        }),
+      );
 
       const systemPrompt = `You are Graham analyzing financial images and charts.
 
 When analyzing:
-- Stock charts: Look for trends and value levels
+- Stock charts: Look for trends and value levels compared to intrinsic value
 - Screenshots: Identify stocks and assess fundamentals
 - News: Evaluate impact on value investing thesis
 
-QUALITY NGX STOCKS:
-${qualityStocks}
+QUALITY NGX STOCKS (with REAL-TIME PRICES):
+${stocksWithPrices.join('\n')}
 
-Always reference: P/E ratio, earnings quality, fundamentals.`;
+Always reference: Current price, P/E ratio, earnings quality, fundamentals, Graham principles.`;
 
       const completion = await this.groq.chat.completions.create({
         model: 'openai/gpt-oss-120b',
@@ -554,7 +589,7 @@ Always reference: P/E ratio, earnings quality, fundamentals.`;
           { role: 'system', content: systemPrompt },
           {
             role: 'user',
-            content: `${userQuestion}\n\nAnalyze this financial image using value investing principles.`,
+            content: `${userQuestion}\n\nAnalyze this financial image using value investing principles and reference specific NGX stock prices if visible.`,
           },
         ],
         temperature: 0.75,
@@ -566,10 +601,13 @@ Always reference: P/E ratio, earnings quality, fundamentals.`;
         .replace(/[\u202F‟×÷–—]/g, ' ')
         .substring(0, 4000);
 
-      await this.sendReply(chatId, `💡 *Image Analysis*\n\n${sanitizedReply}`);
+      // Convert Markdown formatting to HTML
+      const htmlReply = this.markdownToHtml(sanitizedReply);
+
+      await this.sendReply(chatId, `💡 <b>Image Analysis</b>\n\n${htmlReply}`);
     } catch (err) {
       this.logger.error(`[TELEGRAM IMAGE] Error: ${(err as Error).message}`);
-      await this.sendReply(chatId, `⚠️ *Error*\n\nCould not analyze image. Try describing it with text instead.`);
+      await this.sendReply(chatId, `⚠️ <b>Error</b>\n\nCould not analyze image. Try describing it with text instead.`);
     }
   }
 
@@ -644,7 +682,7 @@ Always reference: P/E ratio, earnings quality, fundamentals.`;
       const body: Record<string, unknown> = {
         chat_id: chatId,
         text,
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
       };
       if (replyMarkup) body.reply_markup = replyMarkup;
 
