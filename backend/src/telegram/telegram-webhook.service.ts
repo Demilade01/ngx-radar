@@ -15,6 +15,8 @@ import Groq from 'groq-sdk';
 interface TelegramMessage {
   chat: { id: number };
   text?: string;
+  photo?: Array<{ file_id: string; file_size: number }>;
+  caption?: string;
 }
 
 interface TelegramCallbackQuery {
@@ -115,27 +117,33 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
 
     // Regular message
     const message = update.message;
-    if (!message?.text || !message.chat?.id) return;
+    if (!message?.chat?.id) return;
 
     const chatId = message.chat.id;
-    const text = message.text.trim();
 
-    this.logger.log(`[TELEGRAM BOT] ${chatId}: ${text}`);
+    if (message.text) {
+      const text = message.text.trim();
+      this.logger.log(`[TELEGRAM BOT] ${chatId}: ${text}`);
 
-    if (text === '/start') {
-      await this.handleStart(chatId);
-    } else if (text === '/top') {
-      await this.handleTop(chatId);
-    } else if (text === '/alerts') {
-      await this.handleAlerts(chatId);
-    } else if (text.startsWith('/stock')) {
-      const parts = text.split(/\s+/);
-      const ticker = parts[1]; // undefined if no arg given
-      await this.handleStock(chatId, ticker);
-    } else if (text === '/market') {
-      await this.handleMarket(chatId);
-    } else {
-      await this.handleChat(chatId, text);
+      if (text === '/start') {
+        await this.handleStart(chatId);
+      } else if (text === '/top') {
+        await this.handleTop(chatId);
+      } else if (text === '/alerts') {
+        await this.handleAlerts(chatId);
+      } else if (text.startsWith('/stock')) {
+        const parts = text.split(/\s+/);
+        await this.handleStock(chatId, parts[1]);
+      } else if (text === '/market') {
+        await this.handleMarket(chatId);
+      } else {
+        await this.handleChat(chatId, text);
+      }
+    } else if (message.photo && message.photo.length > 0) {
+      const largestPhoto = message.photo[message.photo.length - 1];
+      const userQuestion = message.caption || 'Analyze this image';
+      this.logger.log(`[TELEGRAM BOT] ${chatId}: [Photo] ${userQuestion}`);
+      await this.handleImageAnalysis(chatId, largestPhoto.file_id, userQuestion);
     }
   }
 
@@ -461,6 +469,11 @@ CONVERSATION TECHNIQUES:
 - Ask probing questions: "What's your investment timeline?", "How much risk can you handle?"
 - Acknowledge different views: "I see your point, but..."
 
+CURRENT MARKET CONTEXT:
+- Include latest available prices when discussing specific stocks
+- If user asks about a stock, reference its current valuation
+- Compare current price to historical average
+
 ALWAYS:
 1. Add disclaimer: "This is educational, not financial advice"
 2. Use emojis: 🟢 Buy 🟡 Hold 🔴 Avoid 💡 Insight ⚠️ Risk
@@ -483,7 +496,7 @@ ALWAYS:
       });
 
       const reply = completion.choices[0]?.message?.content?.trim() ?? 'Unable to process your question.';
-      
+
       // Sanitize Unicode characters that break Telegram HTML parsing
       const sanitizedReply = reply
         .replace(/[\u202F‟×÷–—]/g, ' ')  // Replace problematic Unicode with space
@@ -502,8 +515,61 @@ ALWAYS:
       this.logger.error(`[TELEGRAM CHAT] Error: ${(err as Error).message}`);
       await this.sendReply(
         chatId,
-        `⚠️ <b>Error</b>\n\nUnable to process your question at the moment. Try again or use /help.`,
+        `⚠️ Error\n\nUnable to process your question at the moment. Try again or use /help.`,
       );
+    }
+  }
+
+  // ─── Image Analysis ────────────────────────────────────────────────────────────
+
+  private async handleImageAnalysis(chatId: number, fileId: string, userQuestion: string): Promise<void> {
+    try {
+      await this.sendChatAction(chatId, 'typing');
+
+      const stocks = await this.stocksService.findAll();
+      const qualityStocks = stocks
+        .filter((s) => s.grahamScore && s.grahamScore >= 4)
+        .slice(0, 10)
+        .map((s) => {
+          const pe = s.peRatio ? parseFloat(s.peRatio).toFixed(1) : '—';
+          return `• ${s.ticker.replace('.LG', '')}: Graham ${s.grahamScore}/7, P/E ${pe}x`;
+        })
+        .join('\n');
+
+      const systemPrompt = `You are Graham analyzing financial images and charts.
+
+When analyzing:
+- Stock charts: Look for trends and value levels
+- Screenshots: Identify stocks and assess fundamentals
+- News: Evaluate impact on value investing thesis
+
+QUALITY NGX STOCKS:
+${qualityStocks}
+
+Always reference: P/E ratio, earnings quality, fundamentals.`;
+
+      const completion = await this.groq.chat.completions.create({
+        model: 'openai/gpt-oss-120b',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          {
+            role: 'user',
+            content: `${userQuestion}\n\nAnalyze this financial image using value investing principles.`,
+          },
+        ],
+        temperature: 0.75,
+        max_tokens: 500,
+      });
+
+      const reply = completion.choices[0]?.message?.content?.trim() ?? 'Unable to analyze image.';
+      const sanitizedReply = reply
+        .replace(/[\u202F‟×÷–—]/g, ' ')
+        .substring(0, 4000);
+
+      await this.sendReply(chatId, `💡 *Image Analysis*\n\n${sanitizedReply}`);
+    } catch (err) {
+      this.logger.error(`[TELEGRAM IMAGE] Error: ${(err as Error).message}`);
+      await this.sendReply(chatId, `⚠️ *Error*\n\nCould not analyze image. Try describing it with text instead.`);
     }
   }
 
@@ -535,6 +601,32 @@ ALWAYS:
       });
     } catch (err) {
       // Non-critical — just swallow
+    }
+  }
+
+  private async downloadTelegramImage(fileId: string): Promise<string> {
+    try {
+      // Get file path from Telegram
+      const fileRes = await fetch(`${this.apiBase}/getFile?file_id=${fileId}`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(10000),
+      });
+      const fileData = (await fileRes.json()) as { ok: boolean; result?: { file_path: string } };
+
+      if (!fileData.result?.file_path) throw new Error('File path not found');
+
+      // Download file from Telegram servers
+      const downloadUrl = `https://api.telegram.org/file/bot${this.token}/${fileData.result.file_path}`;
+      const imgRes = await fetch(downloadUrl, {
+        signal: AbortSignal.timeout(10000),
+      });
+      const buffer = await imgRes.arrayBuffer();
+
+      // Convert to base64
+      const base64 = Buffer.from(buffer).toString('base64');
+      return base64;
+    } catch (err) {
+      throw new Error(`Failed to download image: ${(err as Error).message}`);
     }
   }
 
