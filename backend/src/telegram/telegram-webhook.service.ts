@@ -61,6 +61,9 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
   private readonly apiBase = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
   private readonly groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+  // Conversation memory: Map<chatId, conversation history>
+  private conversationHistory = new Map<number, Array<{ role: 'user' | 'assistant'; content: string }>>();
+
   constructor(
     private readonly alertsService: AlertsService,
     private readonly quantService: QuantService,
@@ -398,63 +401,97 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
     }
   }
 
-  // ─── Command: unknown ────────────────────────────────────────────────────────
+  // ─── Command: chat / free-form ─────────────────────────────────────────────
 
   private async handleChat(chatId: number, userMessage: string): Promise<void> {
     try {
       // Show typing indicator
       await this.sendChatAction(chatId, 'typing');
 
+      // Get conversation history for this chat
+      let history = this.conversationHistory.get(chatId) || [];
+
       // Get quality stocks for context
       const stocks = await this.stocksService.findAll();
       const qualityStocks = stocks
         .filter((s) => s.grahamScore && s.grahamScore >= 4)
         .sort((a, b) => (b.grahamScore ?? 0) - (a.grahamScore ?? 0))
-        .slice(0, 15)
+        .slice(0, 10)
         .map((s) => {
           const pe = s.peRatio ? parseFloat(s.peRatio).toFixed(1) : '—';
-          return `• <b>${s.ticker.replace('.LG', '')}</b> [Graham ${s.grahamScore}/7] P/E: ${pe}x`;
+          const pb = s.pbRatio ? parseFloat(s.pbRatio).toFixed(2) : '—';
+          return `• ${s.ticker.replace('.LG', '')}: Graham ${s.grahamScore}/7, P/E ${pe}x, P/B ${pb}x`;
         })
         .join('\n');
 
-      const systemPrompt = `You are an Intelligent Investor advisor inspired by Benjamin Graham's principles of value investing.
+      // Get today's market alerts for real-time context
+      const todayAlerts = await this.alertsService.getRecentAlertsForDigest(1);
+      const marketMoves = todayAlerts
+        .slice(0, 5)
+        .map((a) => `• ${a.ticker}: ${a.summary}`)
+        .join('\n');
 
-KEY PRINCIPLES:
-- Focus on fundamental value and margin of safety
-- Prefer stocks with strong Graham scores (≥5/7) and reasonable P/E ratios
-- Avoid overpaying for growth or hype
-- Long-term thinking over short-term trading
-- Risk management and diversification matter
+      const systemPrompt = `You are Graham, a value investing mentor on the NGX. You speak naturally, think like Benjamin Graham, and remember previous conversations with this user.
+
+PERSONALITY & TONE:
+- Conversational, not robotic. Say "I think..." not "The data suggests..."
+- Challenge assumptions: "Have you considered...?"
+- Build on what was discussed earlier in the chat
+- Show your reasoning: "Here's why DANGCEM interests me..."
+- Be skeptical of hype and short-term trends
+- Ask follow-up questions to understand user's goals
+
+VALUE INVESTING PHILOSOPHY:
+- Buy with margin of safety: "Even if earnings drop 20%, there's still value"
+- Focus on fundamentals over price movements
+- Long-term thinking (5+ years)
+- Compare valuations: "DANGCEM trades at 8x vs market 12x"
+- Diversify across sectors
 - Only invest in what you understand
 
-QUALITY NGX STOCKS AVAILABLE (Graham Score ≥4):
-${qualityStocks || 'No high-quality stocks currently available'}
+QUALITY NGX STOCKS (Graham Score ≥4):
+${qualityStocks || 'No high-quality stocks available'}
 
-When users ask investment questions:
-1. Recommend based on Graham Score (fundamental strength)
-2. Compare price-to-earnings ratios
-3. Suggest sector diversification
-4. Acknowledge personal risk tolerance varies
-5. Always add a disclaimer that this is educational, not financial advice
+TODAY'S MARKET MOVES:
+${marketMoves || 'Market quiet today'}
 
-Be concise for Telegram (keep under 300 characters if possible). Be opinionated but acknowledge uncertainty. Use emojis:
-- 🟢 Buy/Strong fundamentals
-- 🟡 Hold/Medium quality
-- 🔴 Avoid/Weak fundamentals
-- 💡 Educational point
-- ⚠️ Risk/Caution`;
+CONVERSATION TECHNIQUES:
+- Reference previous messages in chat: "As you mentioned earlier..."
+- Build on ideas: "To expand on that thought..."
+- Ask probing questions: "What's your investment timeline?", "How much risk can you handle?"
+- Acknowledge different views: "I see your point, but..."
+
+ALWAYS:
+1. Add disclaimer: "This is educational, not financial advice"
+2. Use emojis: 🟢 Buy 🟡 Hold 🔴 Avoid 💡 Insight ⚠️ Risk
+3. Keep responses concise for Telegram (500 chars max)
+4. Reference specific metrics (P/E, Graham Score, sector)`;
+
+      // Build messages array with conversation history
+      const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
+        { role: 'system', content: systemPrompt },
+        ...history,
+        { role: 'user', content: userMessage },
+      ];
 
       const completion = await this.groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userMessage },
-        ],
-        temperature: 0.7,
-        max_tokens: 400,
+        model: 'llama-3.1-405b-versatile',
+        messages,
+        temperature: 0.75,
+        max_tokens: 500,
+        top_p: 0.9,
       });
 
       const reply = completion.choices[0]?.message?.content?.trim() ?? 'Unable to process your question.';
+
+      // Store in conversation history (keep last 12 messages for context window)
+      history.push({ role: 'user', content: userMessage });
+      history.push({ role: 'assistant', content: reply });
+      if (history.length > 24) {
+        history = history.slice(-24);
+      }
+      this.conversationHistory.set(chatId, history);
+
       await this.sendReply(chatId, `💡 <b>Graham Advisor</b>\n\n${reply}`);
     } catch (err) {
       this.logger.error(`[TELEGRAM CHAT] Error: ${(err as Error).message}`);
