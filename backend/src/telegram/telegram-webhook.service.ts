@@ -428,7 +428,7 @@ export class TelegramWebhookService implements OnApplicationBootstrap {
       const todayAlerts = await this.alertsService.getRecentAlertsForDigest(1);
       const marketMoves = todayAlerts
         .slice(0, 5)
-        .map((a) => `• ${a.ticker}: ${a.summary}`)
+        .map((a) => `• ${a.ticker}: ${a.alert.summary}`)
         .join('\n');
 
       const systemPrompt = `You are Graham, a value investing mentor on the NGX. You speak naturally, think like Benjamin Graham, and remember previous conversations with this user.
@@ -468,7 +468,7 @@ ALWAYS:
 4. Reference specific metrics (P/E, Graham Score, sector)`;
 
       // Build messages array with conversation history
-      const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
+      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
         { role: 'system', content: systemPrompt },
         ...history,
         { role: 'user', content: userMessage },
