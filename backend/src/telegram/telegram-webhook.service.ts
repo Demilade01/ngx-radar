@@ -483,6 +483,11 @@ ALWAYS:
       });
 
       const reply = completion.choices[0]?.message?.content?.trim() ?? 'Unable to process your question.';
+      
+      // Sanitize Unicode characters that break Telegram HTML parsing
+      const sanitizedReply = reply
+        .replace(/[\u202F‟×÷–—]/g, ' ')  // Replace problematic Unicode with space
+        .substring(0, 4000);  // Telegram 4096 char limit
 
       // Store in conversation history (keep last 12 messages for context window)
       history.push({ role: 'user', content: userMessage });
@@ -492,7 +497,7 @@ ALWAYS:
       }
       this.conversationHistory.set(chatId, history);
 
-      await this.sendReply(chatId, `💡 <b>Graham Advisor</b>\n\n${reply}`);
+      await this.sendReply(chatId, `💡 *Graham Advisor*\n\n${sanitizedReply}`);
     } catch (err) {
       this.logger.error(`[TELEGRAM CHAT] Error: ${(err as Error).message}`);
       await this.sendReply(
@@ -547,7 +552,7 @@ ALWAYS:
       const body: Record<string, unknown> = {
         chat_id: chatId,
         text,
-        parse_mode: 'HTML',
+        parse_mode: 'Markdown',
       };
       if (replyMarkup) body.reply_markup = replyMarkup;
 
