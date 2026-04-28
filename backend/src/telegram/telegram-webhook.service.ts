@@ -475,7 +475,7 @@ ALWAYS:
       ];
 
       const completion = await this.groq.chat.completions.create({
-        model: 'llama-3.1-405b-versatile',
+        model: 'openai/gpt-oss-120b',
         messages,
         temperature: 0.75,
         max_tokens: 500,
